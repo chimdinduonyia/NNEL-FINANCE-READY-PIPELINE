@@ -1,0 +1,536 @@
+'use strict';
+/**
+ * routes/projects.js
+ *
+ * POST   /api/projects                        — create project (admin only)
+ * GET    /api/projects                        — list all accessible projects
+ * GET    /api/projects/:id                    — project detail + members + stage states
+ * PATCH  /api/projects/:id                    — update basic fields (admin only)
+ * POST   /api/projects/:id/members            — assign a user to this project (admin only)
+ * DELETE /api/projects/:id/members/:userId    — remove a member (admin only)
+ */
+
+const pool = require('../db');
+const { requireLogin } = require('../middleware/auth');
+const { canViewProject, getRequiredAuthority, hasProjectRole } = require('../middleware/permissions');
+
+// PM can manage members on a project if they created it or are its project lead
+async function pmCanManageProject(userId, projectId) {
+  const [[proj]] = await pool.execute('SELECT created_by FROM projects WHERE id = ?', [projectId]);
+  if (proj?.created_by === userId) return true;
+  return hasProjectRole(projectId, userId, ['project_lead']);
+}
+const { sendJSON, sendError } = require('../utils/response');
+const { readBody } = require('../utils/bodyParser');
+const auditLog = require('../services/auditLog');
+const stageService = require('../services/stageService');
+
+const VALID_ROLES = ['project_lead', 'contributor', 'gate_approver', 'reviewer', 'observer'];
+const VALID_WORKSTREAMS = ['technical', 'commercial', 'finance', 'legal', 'risk', 'esg', 'administrative', 'external'];
+const VALID_AUTHORITIES = ['m1_nnpc', 'm2_evp', 'nnel_board', 'm3_md_nnel', 'slt_mtc', 'm4_ed_cam'];
+
+// ---------------------------------------------------------------------------
+// POST /api/projects
+// Creates a project with all 6 stage rows and initialises Stage 0's checklist.
+// Wrapped in a transaction so a partial failure leaves nothing behind.
+// ---------------------------------------------------------------------------
+async function create(req, res) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+
+  // SECURITY: admins and project managers may create projects
+  if (!['admin','project_manager'].includes(user.system_role)) {
+    return sendError(res, 403, 'Forbidden');
+  }
+
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
+
+  const { name, description, capex_usd, technology, is_at_risk,
+          objectives, justification, benefits, template_version_id } = body;
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return sendError(res, 400, 'name is required');
+  }
+  const capex = parseFloat(capex_usd);
+  if (isNaN(capex) || capex < 0) {
+    return sendError(res, 400, 'capex_usd must be a non-negative number');
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Map the project's display technology to the template_versions.technology ENUM value.
+    // Falls back to 'solar_pv' so existing projects without a technology still work.
+    const TECH_ENUM = { 'Solar PV': 'solar_pv', 'Biofuels': 'biofuels', 'Abatement': 'abatement' };
+    const techEnum = TECH_ENUM[technology] || 'solar_pv';
+
+    // Use the explicitly chosen template version if provided, otherwise fall back
+    // to the most-recent active version for this technology.
+    let tv;
+    if (template_version_id) {
+      const [[row]] = await conn.execute(
+        'SELECT id, version FROM template_versions WHERE id = ? AND technology = ?',
+        [parseInt(template_version_id, 10), techEnum]
+      );
+      if (!row) {
+        await conn.rollback();
+        return sendError(res, 400, 'Chosen template version not found for this technology');
+      }
+      tv = row;
+    } else {
+      const [tvRows] = await conn.execute(
+        'SELECT id, version FROM template_versions WHERE is_active = 1 AND technology = ? ORDER BY id DESC LIMIT 1',
+        [techEnum]
+      );
+      if (!tvRows[0]) {
+        await conn.rollback();
+        return sendError(res, 500, `No active template found for technology '${techEnum}'. Run the seed migrations first.`);
+      }
+      tv = tvRows[0];
+    }
+
+    // Insert the project row
+    const [result] = await conn.execute(
+      `INSERT INTO projects (name, description, capex_usd, technology, is_at_risk,
+                            objectives, justification, benefits, template_version, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name.trim(), description || null, capex.toFixed(2),
+       technology || null, is_at_risk ? 1 : 0,
+       objectives || null, justification || null, benefits || null,
+       tv.version, user.id]
+    );
+    const projectId = result.insertId;
+
+    // Insert 6 project_stage rows. Stage 0 opens immediately (in_progress).
+    for (let stage = 0; stage <= 5; stage++) {
+      await conn.execute(
+        `INSERT INTO project_stages (project_id, stage_number, status)
+         VALUES (?, ?, ?)`,
+        [projectId, stage, stage === 0 ? 'in_progress' : 'not_started']
+      );
+    }
+
+    // Eagerly initialise Stage 0 checklist rows from the template
+    await stageService.initializeStageChecklist(conn, projectId, 0, tv.id);
+
+    await auditLog.log(conn, {
+      userId: user.id,
+      action: 'project_created',
+      projectId,
+      detail: { name: name.trim(), capex_usd: capex, template_version: tv.version },
+    });
+
+    await conn.commit();
+    sendJSON(res, 201, { id: projectId, name: name.trim(), template_version: tv.version });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects
+// Admins see all. All other roles see only projects they are members of.
+// ---------------------------------------------------------------------------
+async function list(req, res) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+
+  let rows;
+  if (['admin','project_manager'].includes(user.system_role)) {
+    // Admins and PMs see all projects
+    [rows] = await pool.execute(
+      `SELECT p.id, p.name, p.description, p.capex_usd, p.current_stage,
+              p.status, p.template_version, p.created_at
+       FROM projects p
+       ORDER BY p.created_at DESC`
+    );
+  } else {
+    [rows] = await pool.execute(
+      `SELECT p.id, p.name, p.description, p.capex_usd, p.current_stage,
+              p.status, p.template_version, p.created_at,
+              pm.role AS my_role
+       FROM projects p
+       JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
+       ORDER BY p.created_at DESC`,
+      [user.id]
+    );
+  }
+
+  sendJSON(res, 200, rows);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:id
+// Returns full project detail: basic info, members, and all 6 stage states.
+// ---------------------------------------------------------------------------
+async function getOne(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+
+  const projectId = parseInt(params.id, 10);
+  if (!projectId) return sendError(res, 400, 'Invalid project id');
+
+  // SECURITY: permission check before reading any data
+  if (!await canViewProject(user.id, user.system_role, projectId)) {
+    return sendError(res, 403, 'Forbidden');
+  }
+
+  // Fetch project details
+  const [[project]] = await pool.execute(
+    `SELECT id, name, description, capex_usd, current_stage, status,
+            template_version, created_by, created_at, updated_at,
+            objectives, justification, benefits
+     FROM projects WHERE id = ?`,
+    [projectId]
+  );
+  if (!project) return sendError(res, 404, 'Project not found');
+
+  // Fetch members with user names
+  const [members] = await pool.execute(
+    `SELECT pm.user_id, u.full_name, u.email, pm.role,
+            pm.workstream, pm.approver_authority, pm.access_expires_at, pm.created_at,
+            pm.member_authority,
+            u.workstream AS user_workstream, u.authority AS user_authority
+     FROM project_members pm
+     JOIN users u ON u.id = pm.user_id
+     WHERE pm.project_id = ?
+     ORDER BY pm.created_at`,
+    [projectId]
+  );
+
+  // Fetch all 6 stage states
+  const [stages] = await pool.execute(
+    `SELECT ps.stage_number, ps.status, ps.review_round, ps.submitted_by, ps.submitted_at,
+            ps.capex_at_submission, ps.submission_summary,
+            u.full_name AS submitted_by_name
+     FROM project_stages ps
+     LEFT JOIN users u ON u.id = ps.submitted_by
+     WHERE ps.project_id = ?
+     ORDER BY ps.stage_number`,
+    [projectId]
+  );
+
+  // Count active checklist items per stage from the template — used to flag
+  // stages that were fully deactivated so the UI can hide them and auto-advance.
+  const [activeItemCounts] = await pool.execute(
+    `SELECT tci.stage_number, COUNT(*) AS active_count
+     FROM template_checklist_items tci
+     JOIN template_versions tv ON tv.id = tci.template_version_id
+     WHERE tv.version = ? AND tci.is_active = 1
+     GROUP BY tci.stage_number`,
+    [project.template_version]
+  );
+  const activeCountByStage = Object.fromEntries(
+    activeItemCounts.map(r => [r.stage_number, Number(r.active_count)])
+  );
+
+  // Attach gate routing info and deactivation flag to each stage
+  const stagesWithRouting = await Promise.all(stages.map(async s => ({
+    ...s,
+    required_approvers: await getRequiredAuthority(s.stage_number, s.capex_at_submission ?? project.capex_usd, projectId),
+    is_deactivated: (activeCountByStage[s.stage_number] ?? 0) === 0,
+  })));
+
+  sendJSON(res, 200, { ...project, members, stages: stagesWithRouting });
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/projects/:id
+// Allows admin to update name, description, capex_usd, or status.
+// ---------------------------------------------------------------------------
+async function update(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+
+  const projectId = parseInt(params.id, 10);
+  if (!projectId) return sendError(res, 400, 'Invalid project id');
+
+  if (user.system_role === 'project_manager') {
+    if (!await pmCanManageProject(user.id, projectId)) {
+      return sendError(res, 403, 'Project managers can only edit projects they created or lead');
+    }
+  } else if (user.system_role !== 'admin') {
+    return sendError(res, 403, 'Forbidden');
+  }
+
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
+
+  const allowed = ['name', 'description', 'capex_usd', 'technology', 'is_at_risk',
+                   'objectives', 'justification', 'benefits', 'status'];
+  const setClauses = [];
+  const values = [];
+
+  for (const field of allowed) {
+    if (body[field] !== undefined) {
+      setClauses.push(`${field} = ?`);
+      values.push(body[field]);
+    }
+  }
+  if (setClauses.length === 0) return sendError(res, 400, 'No updatable fields provided');
+
+  values.push(projectId);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `UPDATE projects SET ${setClauses.join(', ')} WHERE id = ?`,
+      values
+    );
+    await auditLog.log(conn, {
+      userId: user.id,
+      action: 'project_updated',
+      projectId,
+      detail: body,
+    });
+    await conn.commit();
+    sendJSON(res, 200, { updated: true });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/projects/:id/members
+// Assigns a user to this project with a given role.
+// Body: { user_id, role, workstream?, approver_authority?, access_expires_at? }
+// ---------------------------------------------------------------------------
+async function addMember(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+
+  const projectId = parseInt(params.id, 10);
+  if (!projectId) return sendError(res, 400, 'Invalid project id');
+
+  if (user.system_role === 'project_manager') {
+    if (!await pmCanManageProject(user.id, projectId)) {
+      return sendError(res, 403, 'Project managers can only manage members on projects they created or lead');
+    }
+  } else if (user.system_role !== 'admin') {
+    return sendError(res, 403, 'Forbidden');
+  }
+
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
+
+  const { user_id, role, workstream, approver_authority, access_expires_at } = body;
+
+  if (!user_id || !role) return sendError(res, 400, 'user_id and role are required');
+  if (!VALID_ROLES.includes(role)) return sendError(res, 400, `role must be one of: ${VALID_ROLES.join(', ')}`);
+  if (role === 'contributor' && workstream && !VALID_WORKSTREAMS.includes(workstream)) {
+    return sendError(res, 400, `workstream must be one of: ${VALID_WORKSTREAMS.join(', ')}`);
+  }
+  if (role === 'gate_approver' && !VALID_AUTHORITIES.includes(approver_authority)) {
+    return sendError(res, 400, `approver_authority required for gate_approver role: ${VALID_AUTHORITIES.join(', ')}`);
+  }
+
+  // Confirm both project and user exist.
+  // Only query id here — workstream/authority columns require migration 016
+  // and may not exist yet; they are set via PATCH after the initial add.
+  const [[projectRow]] = await pool.execute('SELECT id FROM projects WHERE id = ?', [projectId]);
+  if (!projectRow) return sendError(res, 404, 'Project not found');
+  const [[targetUser]] = await pool.execute(
+    'SELECT id FROM users WHERE id = ? AND is_active = 1',
+    [user_id]
+  );
+  if (!targetUser) return sendError(res, 404, 'User not found or inactive');
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `INSERT INTO project_members
+         (project_id, user_id, role, workstream, approver_authority, access_expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         role = VALUES(role),
+         workstream = VALUES(workstream),
+         approver_authority = VALUES(approver_authority),
+         access_expires_at = VALUES(access_expires_at)`,
+      [projectId, user_id, role,
+       role === 'contributor' ? workstream : null,
+       role === 'gate_approver' ? approver_authority : null,
+       access_expires_at || null]
+    );
+    await auditLog.log(conn, {
+      userId: user.id,
+      action: 'member_assigned',
+      projectId,
+      detail: { target_user_id: user_id, role, workstream, approver_authority },
+    });
+    await conn.commit();
+    sendJSON(res, 200, { assigned: true });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/projects/:id/members/:userId
+// Removes a member from this project. Admin only.
+// ---------------------------------------------------------------------------
+async function removeMember(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+
+  const projectId = parseInt(params.id, 10);
+  const targetUserId = parseInt(params.userId, 10);
+
+  if (user.system_role === 'project_manager') {
+    if (!await pmCanManageProject(user.id, projectId)) {
+      return sendError(res, 403, 'Project managers can only manage members on projects they created or lead');
+    }
+  } else if (user.system_role !== 'admin') {
+    return sendError(res, 403, 'Forbidden');
+  }
+  if (!projectId || !targetUserId) return sendError(res, 400, 'Invalid ids');
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      'DELETE FROM project_members WHERE project_id = ? AND user_id = ?',
+      [projectId, targetUserId]
+    );
+    await auditLog.log(conn, {
+      userId: user.id,
+      action: 'member_removed',
+      projectId,
+      detail: { target_user_id: targetUserId },
+    });
+    await conn.commit();
+    sendJSON(res, 200, { removed: true });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/projects/:id
+// Soft-deletes by setting status = 'cancelled'. Hard deletion is not possible
+// because audit_log and gate_decisions have INSERT-only DB grants, meaning
+// those rows cannot be removed — this preserves the immutable governance trail.
+// The project disappears from the active portfolio but all records are kept.
+// ---------------------------------------------------------------------------
+async function deleteProject(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+  if (user.system_role !== 'admin') return sendError(res, 403, 'Forbidden');
+
+  const projectId = parseInt(params.id, 10);
+  if (!projectId) return sendError(res, 400, 'Invalid project id');
+
+  const [[proj]] = await pool.execute(
+    'SELECT id, name, status FROM projects WHERE id = ?', [projectId]
+  );
+  if (!proj) return sendError(res, 404, 'Project not found');
+  if (proj.status === 'cancelled') {
+    return sendError(res, 409, 'Project is already cancelled');
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      "UPDATE projects SET status = 'cancelled' WHERE id = ?", [projectId]
+    );
+    await auditLog.log(conn, {
+      userId: user.id,
+      action: 'project_deleted',
+      projectId,
+      detail: { project_name: proj.name, previous_status: proj.status },
+    });
+    await conn.commit();
+    sendJSON(res, 200, { deleted: true });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/projects/:id/members/:userId/:role
+// Updates workstream and/or member_authority on an existing membership row.
+// Admin only. Does NOT change the role (PK) — for role changes delete + re-add.
+// ---------------------------------------------------------------------------
+async function updateMember(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+
+  const projectId    = parseInt(params.id, 10);
+  const targetUserId = parseInt(params.userId, 10);
+  const role         = params.role;
+  if (!projectId || !targetUserId || !role) return sendError(res, 400, 'Invalid ids');
+
+  if (user.system_role === 'project_manager') {
+    if (!await pmCanManageProject(user.id, projectId)) {
+      return sendError(res, 403, 'Project managers can only manage members on projects they created or lead');
+    }
+  } else if (user.system_role !== 'admin') {
+    return sendError(res, 403, 'Forbidden');
+  }
+
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
+
+  const sets   = [];
+  const values = [];
+
+  if (body.workstream !== undefined) {
+    sets.push('workstream = ?');
+    values.push(body.workstream || null);
+  }
+  if (body.member_authority !== undefined) {
+    sets.push('member_authority = ?');
+    values.push(body.member_authority || null);
+  }
+  // When promoting to gate_approver via inline edit, approver_authority must be set
+  if (body.approver_authority !== undefined) {
+    if (body.approver_authority && !VALID_AUTHORITIES.includes(body.approver_authority)) {
+      return sendError(res, 400, `approver_authority must be one of: ${VALID_AUTHORITIES.join(', ')}`);
+    }
+    sets.push('approver_authority = ?');
+    values.push(body.approver_authority || null);
+  }
+
+  if (sets.length === 0) return sendError(res, 400, 'No updatable fields provided');
+  values.push(projectId, targetUserId, role);
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `UPDATE project_members SET ${sets.join(', ')}
+       WHERE project_id = ? AND user_id = ? AND role = ?`,
+      values
+    );
+    await auditLog.log(conn, {
+      userId: user.id, action: 'member_updated', projectId,
+      detail: { target_user_id: targetUserId, role, changes: body },
+    });
+    await conn.commit();
+    sendJSON(res, 200, { updated: true });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+module.exports = { create, list, getOne, update, addMember, removeMember, deleteProject, updateMember };

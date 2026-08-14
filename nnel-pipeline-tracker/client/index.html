@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portfolio | NNEL Pipeline Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <header id="app-header">
+    <div class="container header-inner">
+      <div class="logo">
+        <img src="/img/nnel-logo-light.png" alt="NNEL" class="header-logo">
+        <span class="logo-text">Finance-Ready Pipeline Tracker</span>
+      </div>
+      <div class="header-user" id="header-user">
+        <div class="user-menu">
+          <span class="user-menu-name" id="user-name"></span>
+          <div class="avatar-wrapper">
+            <div class="avatar" id="user-avatar"></div>
+            <div class="avatar-dropdown" id="avatar-dropdown"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container page-main" id="page-main">
+    <!-- Pending decisions (approvers) -->
+    <div id="pending-section" class="hidden"></div>
+    <!-- NO-GO rejection notices (project leads) -->
+    <div id="rejected-section" class="hidden"></div>
+
+    <!-- KPI cards -->
+    <div id="kpi-section">
+      <div class="kpi-grid" id="kpi-grid">
+        <div class="loading">Loading dashboard…</div>
+      </div>
+    </div>
+
+    <!-- Funnel filter strip -->
+    <div>
+      <div id="funnel-strip" class="funnel-strip"></div>
+      <div class="flex items-center gap-12 mt-12" id="filter-row" style="flex-wrap:wrap;">
+        <div id="filter-chips" class="filter-chips"></div>
+      </div>
+    </div>
+
+    <!-- Project cards -->
+    <div>
+      <div id="section-header" class="flex items-center justify-between" style="margin-bottom:16px;">
+        <h2 id="section-title" style="font-size:18px;font-weight:700;"></h2>
+        <button class="btn btn-primary btn-sm hidden" id="new-project-btn">+ New Project</button>
+      </div>
+      <div id="projects-grid" class="projects-grid">
+        <div class="loading">Loading projects…</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- New project modal -->
+  <div id="new-project-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div class="card" style="width:100%;max-width:520px;max-height:90vh;overflow-y:auto;">
+      <div class="card-header">
+        <h3>New Project</h3>
+        <button class="btn btn-ghost btn-sm" id="close-modal-btn">✕</button>
+      </div>
+      <div class="card-body">
+        <form id="new-project-form" class="add-form" style="border:none;padding:0;background:none;">
+          <div class="form-group">
+            <label>Project name *</label>
+            <input type="text" id="np-name" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>CAPEX (USD) *</label>
+              <input type="number" id="np-capex" min="0" step="1000" placeholder="e.g. 45000000">
+            </div>
+            <div class="form-group">
+              <label>Project Vertical</label>
+              <select id="np-tech">
+                <option value="">Select vertical</option>
+                <option value="Solar PV">Solar PV</option>
+                <option value="Biofuels">Biofuels</option>
+                <option value="Abatement">Abatement</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Checklist Template <span class="form-hint">(select a technology first)</span></label>
+            <select id="np-template">
+              <option value="">Select technology first</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="np-desc" rows="2"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Objectives <span class="form-hint">(what the project aims to achieve)</span></label>
+            <textarea id="np-objectives" rows="2" placeholder="State the project objectives…"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Justification <span class="form-hint">(why this project is needed)</span></label>
+            <textarea id="np-justification" rows="2" placeholder="State the rationale and strategic fit…"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Expected Benefits <span class="form-hint">(value this project will deliver)</span></label>
+            <textarea id="np-benefits" rows="2" placeholder="Describe expected financial, social or environmental benefits…"></textarea>
+          </div>
+          <div id="np-error" class="error-msg hidden"></div>
+          <div class="flex gap-8" style="justify-content:flex-end;">
+            <button type="button" class="btn btn-ghost" id="cancel-modal-btn">Cancel</button>
+            <button type="submit" class="btn btn-primary">Create Project</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/portfolio.js"></script>
+</body>
+</html>

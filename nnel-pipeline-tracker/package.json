@@ -1,0 +1,19 @@
+{
+  "name": "nnel-pipeline-tracker",
+  "version": "0.1.0",
+  "description": "NNEL Finance-Ready Pipeline Tracker",
+  "main": "server/server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "create-admin": "node scripts/create-admin.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.5",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.9.7"
+  }
+}

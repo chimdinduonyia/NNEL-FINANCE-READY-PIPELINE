@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Virtual Data Room | NNEL Pipeline Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .vdr-header {
+      background: var(--green-900);
+      color: #fff;
+      padding: 20px 0;
+      margin-bottom: 0;
+    }
+    .vdr-header .container { display: flex; flex-direction: column; gap: 4px; }
+    .vdr-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.65); }
+    .vdr-project-name { font-size: 26px; font-weight: 800; line-height: 1.2; }
+    .vdr-meta { display: flex; align-items: center; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+    .vdr-meta-item { font-size: 13px; color: rgba(255,255,255,0.75); }
+    .vdr-meta-item strong { color: #fff; font-weight: 700; }
+
+    .expiry-banner {
+      padding: 12px 0;
+    }
+    .expiry-banner .container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .expiry-banner.warn  { background: var(--amber-100); color: var(--amber-600); border-bottom: 1px solid #fde68a; }
+    .expiry-banner.safe  { background: var(--green-50);  color: var(--green-700);  border-bottom: 1px solid var(--green-100); }
+    .expiry-banner.expired { background: var(--red-100); color: var(--red-700); border-bottom: 1px solid #fca5a5; }
+
+    .confidential-notice {
+      background: var(--gray-50);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .folder-section { margin-bottom: 32px; }
+    .folder-title {
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--green-700);
+      padding: 10px 0 8px;
+      border-bottom: 2px solid var(--green-100);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .folder-code-chip {
+      background: var(--green-100);
+      color: var(--green-700);
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .doc-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 16px;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      font-size: 14px;
+    }
+    .doc-row:hover { background: var(--gray-50); }
+    .doc-row + .doc-row { border-top: 1px solid var(--border); }
+    .doc-title { font-weight: 600; }
+    .doc-subtitle { font-size: 12px; color: var(--text-muted); display: flex; gap: 10px; margin-top: 2px; }
+    .doc-fileref a { font-size: 13px; color: var(--green-700); text-decoration: underline; }
+    .doc-date { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+    .vdr-file-link { font-size: 13px; color: var(--green-700); text-decoration: underline; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; display: inline-block; }
+    .vdr-folder-count {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      background: var(--gray-100);
+      padding: 1px 8px;
+      border-radius: 99px;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .vdr-folder-empty {
+      padding: 16px 14px;
+      font-size: 13px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    #vdr-nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; }
+    .vdr-back { font-size: 14px; color: rgba(255,255,255,0.8); }
+    .vdr-back:hover { color: #fff; }
+  </style>
+</head>
+<body>
+  <header id="app-header">
+    <div class="container header-inner">
+      <div id="vdr-nav">
+        <a href="/" class="back-link" id="back-link">← Portfolio</a>
+      </div>
+      <div class="logo">
+        <img src="/img/nnel-logo-light.png" alt="NNEL" class="header-logo">
+        <span class="logo-text">Finance-Ready Pipeline Tracker</span>
+      </div>
+      <div class="header-user" id="header-user">
+        <div class="user-menu">
+          <span class="user-menu-name" id="user-name"></span>
+          <div class="avatar-wrapper">
+            <div class="avatar" id="user-avatar"></div>
+            <div class="avatar-dropdown" id="avatar-dropdown"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Project header -->
+  <div class="vdr-header" id="vdr-header" style="display:none;">
+    <div class="container">
+      <div class="vdr-title">Virtual Data Room</div>
+      <div class="vdr-project-name" id="vdr-project-name"></div>
+      <div class="vdr-meta" id="vdr-meta"></div>
+    </div>
+  </div>
+
+  <!-- Access expiry banner -->
+  <div id="expiry-banner" class="hidden"></div>
+
+  <main class="container" style="padding-top: 28px; padding-bottom: 56px;">
+    <div id="vdr-content">
+      <div class="loading">Loading data room…</div>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/dataroom.js"></script>
+</body>
+</html>

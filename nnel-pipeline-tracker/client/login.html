@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In | NNEL Pipeline Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body class="login-page">
+  <div class="login-container">
+    <div class="login-header">
+      <img src="/img/nnpc-logo.png" alt="NNPC New Energy" class="login-logo">
+      <h1>Finance-Ready Pipeline</h1>
+      <p>Sign in to continue</p>
+    </div>
+
+    <form id="login-form" class="login-form" novalidate>
+      <div class="form-group">
+        <label for="email">Email address</label>
+        <input type="email" id="email" autocomplete="email" required placeholder="you@nnel.com">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <div class="pw-wrap">
+          <input type="password" id="password" autocomplete="current-password" required placeholder="••••••••••••">
+          <button type="button" class="pw-toggle" data-target="password">Show</button>
+        </div>
+      </div>
+      <div id="error-msg" class="error-msg hidden"></div>
+      <button type="submit" id="submit-btn" class="btn btn-primary btn-full">Sign In</button>
+    </form>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+</body>
+</html>
