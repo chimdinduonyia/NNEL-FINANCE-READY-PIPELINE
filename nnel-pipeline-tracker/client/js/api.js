@@ -110,12 +110,13 @@ const api = {
 
   // Helpers
   fmt: {
-    currency(val) {
+    currency(val, curr = 'USD') {
+      const symbol = curr === 'NGN' ? '₦' : '$';
       const n = Number(val);
-      if (n >= 1e9) return `$${(n/1e9).toFixed(1)}B`;
-      if (n >= 1e6) return `$${(n/1e6).toFixed(1)}M`;
-      if (n >= 1e3) return `$${(n/1e3).toFixed(0)}K`;
-      return `$${n.toFixed(0)}`;
+      if (n >= 1e9) return `${symbol}${(n/1e9).toFixed(1)}B`;
+      if (n >= 1e6) return `${symbol}${(n/1e6).toFixed(1)}M`;
+      if (n >= 1e3) return `${symbol}${(n/1e3).toFixed(0)}K`;
+      return `${symbol}${n.toFixed(0)}`;
     },
     date(d) {
       if (!d) return '-';

@@ -70,9 +70,38 @@ async function loadProject() {
   viewStage = null; // any reload (e.g. member add) returns to working view
   document.title = `${project.name.toUpperCase()} | NNEL Pipeline Tracker`;
   renderHeader();
+  renderProjectBrief();
   renderPipelineStrip();
   renderTabs();
   loadTab(activeTab);
+}
+
+// ---- Project brief — quick fact strip shown above the stepper -------------
+function renderProjectBrief() {
+  const el   = document.getElementById('project-brief');
+  const grid = document.getElementById('brief-grid');
+
+  const capexValue = project.capex_currency === 'NGN'
+    ? `${api.fmt.currency(project.capex_amount, 'NGN')}
+       <span class="brief-sub">(≈ ${api.fmt.currency(project.capex_usd)} USD)</span>`
+    : api.fmt.currency(project.capex_usd);
+
+  const items = [
+    ['Project Name',  api.fmt.escape(project.name.toUpperCase())],
+    ['Vertical',      api.fmt.escape(project.technology || '—')],
+    ['Project Value', capexValue],
+    ['Capacity',      api.fmt.escape(project.capacity || '—')],
+    ['Location',      api.fmt.escape(project.location || '—')],
+  ];
+
+  grid.innerHTML = items.map(([label, value]) => `
+    <div class="brief-item">
+      <div class="brief-label">${label}</div>
+      <div class="brief-value">${value}</div>
+    </div>
+  `).join('');
+
+  el.style.display = 'block';
 }
 
 // ---- Header ----------------------------------------------------------------
@@ -132,6 +161,7 @@ function renderPipelineStrip() {
         `status-${s.status}`,
         'clickable',
         isSelected ? 'selected' : '',
+        s.status === 'approved' ? 'line-complete' : '', // greens the connector leading to the next stage
       ].filter(Boolean).join(' ');
 
       const dot   = stageIcon(s.status);
@@ -421,8 +451,7 @@ async function renderChecklist(el) {
     <div id="recall-error" class="error-msg hidden" style="margin-top:6px;"></div>` : '';
 
   // Stage documents section — upload during in_progress, view when submitted/beyond
-  const canAddDoc = stageOpen && (isAdmin() || isProjectLead() || isContrib);
-  const stageDocsHtml = renderStageDocs(stageDocs, stageNum, canAddDoc, false, stageOpen);
+  const stageDocsHtml = renderStageDocs(stageDocs, stageNum, false, stageOpen);
 
   const checklistBody = allDeactivated
     ? deactivatedBanner
@@ -442,6 +471,11 @@ async function renderChecklist(el) {
     cb.addEventListener('change', () => handleCheckToggle(cb, stageNum));
   });
 
+  // Wire up "Edit evidence note" buttons on already-checked items
+  el.querySelectorAll('.evidence-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => handleEvidenceEdit(btn));
+  });
+
   // Wire up stage-doc edit buttons (pencil icon)
   el.querySelectorAll('.sdoc-edit-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -450,9 +484,6 @@ async function renderChecklist(el) {
       if (doc) openDocEditModal(doc, stageNum);
     });
   });
-
-  // Wire up stage-doc add form
-  wireStageDocForm(el, stageNum);
 
   // Wire up stage-doc delete buttons
   el.querySelectorAll('.sdoc-delete-btn').forEach(btn => {
@@ -518,9 +549,10 @@ function renderChecklistItem(item, stageNum, editable, outsideWs = false) {
 
   const evidenceHtml = item.is_complete ? `
     <div class="item-evidence">
-      ${editable ? `<input type="text" class="evidence-input" data-item="${item.checklist_item_id}"
-        value="${api.fmt.escape(item.evidence_note ?? '')}" placeholder="Evidence note…">` :
-        (item.evidence_note ? `<div class="item-evidence-display">↳ ${api.fmt.escape(item.evidence_note)}</div>` : '')}
+      ${item.evidence_note ? `<div class="item-evidence-display">↳ ${api.fmt.escape(item.evidence_note)}</div>` : ''}
+      ${editable ? `<button type="button" class="btn-link text-sm evidence-edit-btn"
+        data-item="${item.checklist_item_id}" data-stage="${stageNum}">
+        ${item.evidence_note ? 'Edit evidence note' : '+ Add evidence note'}</button>` : ''}
     </div>
     ${item.completed_by_name ? `<div class="item-completed-by">Completed by ${api.fmt.escape(item.completed_by_name)} · ${api.fmt.date(item.completed_at)}</div>` : ''}
   ` : '';
@@ -545,13 +577,27 @@ async function handleCheckToggle(cb, stageNum) {
   const checked = cb.checked;
 
   let evidenceNote = '';
+  let docToCreate  = null;
+
   if (checked) {
-    evidenceNote = prompt('Evidence note (describe how this item is satisfied):') ?? '';
-    if (evidenceNote === null) { cb.checked = false; return; } // cancelled
+    const itemEl   = cb.closest('.checklist-item');
+    const itemCode = itemEl?.querySelector('.item-code')?.textContent ?? '';
+    const itemDesc = itemEl?.querySelector('.item-desc')?.textContent ?? '';
+    const result = await showEvidenceModal({ itemCode, itemDesc, stageNum });
+    if (result.cancelled) { cb.checked = false; return; }
+    evidenceNote = result.evidenceNote;
+    docToCreate  = result.document;
   }
 
   cb.disabled = true;
   try {
+    if (docToCreate) {
+      await api.post(`/api/projects/${projectId}/documents`, {
+        title: docToCreate.title, folder_code: docToCreate.folder,
+        stage_number: stageNum, file_ref: docToCreate.fileRef || null,
+        status: 'submitted',
+      });
+    }
     await api.patch(`/api/projects/${projectId}/stages/${stageNum}/checklist/${itemId}`, {
       is_complete:   checked,
       evidence_note: evidenceNote || null,
@@ -563,6 +609,137 @@ async function handleCheckToggle(cb, stageNum) {
   } finally {
     cb.disabled = false;
   }
+}
+
+// Edit the evidence note on an item that's already checked (no document
+// re-attachment forced — the modal still offers it as optional).
+async function handleEvidenceEdit(btn) {
+  const itemId   = btn.dataset.item;
+  const stageNum = parseInt(btn.dataset.stage, 10);
+  const itemEl   = btn.closest('.checklist-item');
+  const itemCode = itemEl?.querySelector('.item-code')?.textContent ?? '';
+  const itemDesc = itemEl?.querySelector('.item-desc')?.textContent ?? '';
+  const existingNote = itemEl?.querySelector('.item-evidence-display')?.textContent.replace(/^↳\s*/, '') ?? '';
+
+  const result = await showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote });
+  if (result.cancelled) return;
+
+  btn.disabled = true;
+  try {
+    if (result.document) {
+      await api.post(`/api/projects/${projectId}/documents`, {
+        title: result.document.title, folder_code: result.document.folder,
+        stage_number: stageNum, file_ref: result.document.fileRef || null,
+        status: 'submitted',
+      });
+    }
+    await api.patch(`/api/projects/${projectId}/stages/${stageNum}/checklist/${itemId}`, {
+      is_complete: true, evidence_note: result.evidenceNote || null,
+    });
+    await renderChecklist(document.getElementById('section-content'));
+  } catch (err) {
+    alert('Could not update evidence note: ' + err.message);
+    btn.disabled = false;
+  }
+}
+
+// ===========================================================================
+// EVIDENCE NOTE MODAL
+// Replaces the old browser prompt(). Also lets the user optionally attach a
+// supporting document (title / file reference / VDR folder) in the same
+// step, instead of the separate "Add Document to Stage" box that used to
+// sit at the bottom of the checklist page.
+// ===========================================================================
+function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) {
+  return new Promise((resolve) => {
+    document.getElementById('evidence-modal')?.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'evidence-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;';
+    modal.innerHTML = `
+      <div class="card" style="width:100%;max-width:520px;max-height:90vh;overflow-y:auto;">
+        <div class="card-header">
+          <h3>Evidence Note</h3>
+          <button class="btn btn-ghost btn-sm" id="ev-close">✕</button>
+        </div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:16px;">
+          <div class="text-sm text-muted">${api.fmt.escape(itemCode)} — ${api.fmt.escape(itemDesc)}</div>
+
+          <div class="form-group">
+            <label>Evidence note <span class="form-hint">(describe how this item is satisfied)</span></label>
+            <textarea id="ev-note" rows="3" placeholder="Describe how this item is satisfied…">${api.fmt.escape(existingNote)}</textarea>
+          </div>
+
+          <hr class="divider">
+
+          <div class="form-group" style="gap:2px;">
+            <label>Reference a document <span class="form-hint">(optional)</span></label>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Document Title</label>
+              <input type="text" id="ev-doc-title" placeholder="Document title…">
+            </div>
+            <div class="form-group">
+              <label>File Reference</label>
+              <input type="text" id="ev-doc-fileref" placeholder="filename.pdf or URL…">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>VDR Folder</label>
+            <select id="ev-doc-folder"><option value="">Loading…</option></select>
+          </div>
+
+          <div id="ev-error" class="error-msg hidden"></div>
+          <div class="flex gap-8" style="justify-content:flex-end;">
+            <button class="btn btn-ghost" id="ev-cancel">Cancel</button>
+            <button class="btn btn-primary" id="ev-save">Save</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    // Populate VDR folder dropdown from the project's active template
+    api.get(`/api/templates/active${techParam(project.technology)}`)
+      .then(tpl => {
+        const sel = modal.querySelector('#ev-doc-folder');
+        sel.innerHTML = '<option value="">Select folder…</option>' +
+          (tpl?.vdr_folders ?? [])
+            .map(f => `<option value="${f.folder_code}">${f.folder_code}: ${api.fmt.escape(f.name)}</option>`)
+            .join('');
+      })
+      .catch(() => {
+        modal.querySelector('#ev-doc-folder').innerHTML = '<option value="">Could not load folders</option>';
+      });
+
+    const close = (result) => { modal.remove(); resolve(result); };
+    modal.querySelector('#ev-close').addEventListener('click', () => close({ cancelled: true }));
+    modal.querySelector('#ev-cancel').addEventListener('click', () => close({ cancelled: true }));
+    modal.addEventListener('click', e => { if (e.target === modal) close({ cancelled: true }); });
+
+    modal.querySelector('#ev-save').addEventListener('click', () => {
+      const errEl = modal.querySelector('#ev-error');
+      errEl.classList.add('hidden');
+
+      const note       = modal.querySelector('#ev-note').value.trim();
+      const docTitle   = modal.querySelector('#ev-doc-title').value.trim();
+      const docFileRef = modal.querySelector('#ev-doc-fileref').value.trim();
+      const docFolder  = modal.querySelector('#ev-doc-folder').value;
+
+      if (docTitle && !docFolder) {
+        errEl.textContent = 'Select a VDR folder for the document.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+
+      close({
+        cancelled: false,
+        evidenceNote: note,
+        document: docTitle ? { title: docTitle, fileRef: docFileRef, folder: docFolder } : null,
+      });
+    });
+  });
 }
 
 // ===========================================================================
@@ -636,7 +813,7 @@ async function renderGate(el) {
     const canApprove = isGateApprover()
       && stage?.status === 'submitted'
       && (requiredAuths.length === 0 || requiredAuths.some(a => myAuthorities.includes(a)));
-    parts.push(renderStageDocs(stageDocs, stageNum, false, canApprove));
+    parts.push(renderStageDocs(stageDocs, stageNum, canApprove));
   }
 
   // Warn gate approver if submitted documents are still pending review
@@ -1463,14 +1640,13 @@ async function openDocEditModal(doc, stageNum) {
 const VDR_STATUSES_GATE = ['outstanding','submitted','approved','superseded'];
 
 /**
- * Renders a stage-document section.
+ * Renders a stage-document section (read-only table + approve/return workflow).
  * @param {Array}   docs        - documents filtered to this stage
  * @param {number}  stageNum    - current stage number
- * @param {boolean} canAdd      - show Add Document form (PL / contributor / admin)
  * @param {boolean} canApprove  - show Approve buttons (gate approver reviewing)
  */
 // stageIsOpen: true when stage is in_progress — enables edit button for uploader
-function renderStageDocs(docs, stageNum, canAdd, canApprove, stageIsOpen = false) {
+function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
   // Geometric SVG icons — square linecaps, straight lines
   const tickSvg = `<svg width="11" height="9" viewBox="0 0 11 9" fill="none" style="vertical-align:middle;flex-shrink:0;">
     <polyline points="1,4.5 3.5,7.5 10,1" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
@@ -1573,78 +1749,16 @@ function renderStageDocs(docs, stageNum, canAdd, canApprove, stageIsOpen = false
        </table>`
     : '<p class="text-sm text-muted" style="padding:12px 0;">No documents submitted for this stage yet.</p>';
 
-  const addFormHtml = canAdd ? `
-    <div id="stage-doc-form" class="add-form" style="margin-top:16px;">
-      <h4>Add Document to Stage ${stageNum}</h4>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Title *</label>
-          <input type="text" id="sdoc-title" placeholder="Document title…">
-        </div>
-        <div class="form-group">
-          <label>File Reference</label>
-          <input type="text" id="sdoc-fileref" placeholder="filename.pdf or URL…">
-        </div>
-      </div>
-      <div class="form-group">
-        <label>VDR Folder *</label>
-        <select id="sdoc-folder"></select>
-      </div>
-      <div id="sdoc-error" class="error-msg hidden"></div>
-      <button class="btn btn-primary btn-sm" id="sdoc-submit" style="align-self:flex-start;">Add Document</button>
-    </div>` : '';
-
+  // Documents are added by attaching them to an evidence note when ticking a
+  // checklist item (see showEvidenceModal) -- there's no standalone add-form
+  // here any more.
   return `<div class="stage-doc-section">
     <h3 class="stage-doc-heading">
       Stage ${stageNum} Documents
       ${canApprove ? '<span class="badge badge-amber" style="margin-left:8px;font-size:11px;">Review &amp; Approve</span>' : ''}
     </h3>
     <div class="card" style="overflow:hidden;">${tableHtml}</div>
-    ${addFormHtml}
   </div>`;
-}
-
-/**
- * Wires up the Add Document form inside a stage-doc section.
- * Fetches VDR folders from the active template, populates the select,
- * then submits to POST /api/projects/:id/documents.
- */
-async function wireStageDocForm(el, stageNum) {
-  const form = el.querySelector('#stage-doc-form');
-  if (!form) return;
-
-  // Populate VDR folder dropdown
-  try {
-    const tpl = await api.get(`/api/templates/active${techParam(project.technology)}`);
-    const folderSel = form.querySelector('#sdoc-folder');
-    folderSel.innerHTML = (tpl?.vdr_folders ?? [])
-      .map(f => `<option value="${f.folder_code}">${f.folder_code}: ${api.fmt.escape(f.name)}</option>`)
-      .join('');
-  } catch { /* leave folder dropdown empty */ }
-
-  const btn   = form.querySelector('#sdoc-submit');
-  const errEl = form.querySelector('#sdoc-error');
-  btn.addEventListener('click', async () => {
-    errEl.classList.add('hidden');
-    const title   = form.querySelector('#sdoc-title').value.trim();
-    const fileRef = form.querySelector('#sdoc-fileref').value.trim();
-    const folder  = form.querySelector('#sdoc-folder').value;
-    if (!title)  { errEl.textContent = 'Title is required.'; errEl.classList.remove('hidden'); return; }
-    if (!folder) { errEl.textContent = 'Select a VDR folder.'; errEl.classList.remove('hidden'); return; }
-    btn.disabled = true;
-    try {
-      await api.post(`/api/projects/${projectId}/documents`, {
-        title, folder_code: folder, stage_number: stageNum, file_ref: fileRef || null,
-        status: 'submitted',
-      });
-      // Refresh only the checklist tab content so the new doc appears
-      await renderChecklist(document.getElementById('section-content'));
-    } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove('hidden');
-      btn.disabled = false;
-    }
-  });
 }
 
 // ===========================================================================

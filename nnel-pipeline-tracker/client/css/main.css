@@ -619,15 +619,38 @@ textarea { resize: vertical; min-height: 80px; }
 .project-meta { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
 .project-capex { font-size: 14px; color: var(--text-muted); font-weight: 600; }
 
+/* Project brief — quick fact strip shown above the stepper */
+.project-brief {
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+}
+.brief-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px 40px;
+}
+.brief-item { display: flex; flex-direction: column; gap: 3px; min-width: 100px; }
+.brief-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.brief-value { font-size: 14px; font-weight: 700; color: var(--gray-900); }
+.brief-value .brief-sub { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+
 /* Pipeline stage strip */
 .pipeline-strip {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
-  padding: 16px 0;
+  padding: 20px 0;
   overflow-x: auto;
 }
 .stage-strip {
   display: flex;
+  align-items: flex-start;
   gap: 0;
   min-width: 640px;
 }
@@ -636,40 +659,49 @@ textarea { resize: vertical; min-height: 80px; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   position: relative;
   padding: 0 4px;
 }
+/* Connector line runs behind the dots, split into two halves per node so the
+   segment between two stages always reflects the earlier stage's status
+   rather than one flat grey bar across the whole strip. */
+.stage-node::before,
 .stage-node::after {
   content: '';
   position: absolute;
-  top: 14px;
-  right: -50%;
-  width: 100%;
+  top: 15px;
   height: 2px;
+  width: 50%;
   background: var(--gray-200);
   z-index: 0;
 }
-.stage-node:last-child::after { display: none; }
+.stage-node::before { left: 0; }
+.stage-node::after  { right: 0; }
+.stage-node:first-child::before { display: none; }
+.stage-node:last-child::after   { display: none; }
+.stage-node.line-complete::after { background: var(--green-500); }
+.stage-node.line-complete + .stage-node::before { background: var(--green-500); }
 .stage-dot {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: 2px solid var(--gray-200);
   background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-muted);
   position: relative;
   z-index: 1;
+  transition: box-shadow 0.15s, filter 0.15s;
 }
-.stage-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-align: center; line-height: 1.2; }
+.stage-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-align: center; line-height: 1.3; }
 .stage-node.status-in_progress .stage-dot   { border-color: var(--blue-600); background: var(--blue-100); color: var(--blue-600); }
 .stage-node.status-submitted   .stage-dot   { border-color: var(--amber-600); background: var(--amber-100); color: var(--amber-600); }
-.stage-node.status-approved    .stage-dot   { border-color: var(--green-600); background: var(--green-100); color: var(--green-700); }
+.stage-node.status-approved    .stage-dot   { border-color: var(--green-600); background: var(--green-600); color: #fff; }
 .stage-node.status-conditional .stage-dot   { border-color: var(--orange-600); background: var(--orange-100); color: var(--orange-600); }
 .stage-node.status-rejected    .stage-dot   { border-color: var(--red-700); background: var(--red-100); color: var(--red-700); }
 .stage-node.status-in_progress .stage-label,
@@ -681,9 +713,9 @@ textarea { resize: vertical; min-height: 80px; }
 .stage-node.clickable { cursor: pointer; }
 .stage-node.clickable:hover .stage-dot { filter: brightness(0.92); }
 .stage-node.selected .stage-dot {
-  box-shadow: 0 0 0 3px white, 0 0 0 5px var(--green-600);
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--green-600);
 }
-.stage-node.selected .stage-label { font-weight: 800; }
+.stage-node.selected .stage-label { font-weight: 800; color: var(--gray-900); }
 
 /* History snapshot banner */
 .history-banner {
@@ -825,18 +857,13 @@ textarea { resize: vertical; min-height: 80px; }
 .item-body { flex: 1; min-width: 0; }
 .item-code { font-size: 11px; font-weight: 700; color: var(--text-muted); }
 .item-desc { font-size: 14px; color: var(--text); line-height: 1.4; }
-.item-evidence { margin-top: 8px; }
-.item-evidence input {
-  font-size: 13px; padding: 6px 10px;
-  border: 1px solid var(--green-100);
-  background: var(--bg);
-}
+.item-evidence { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .item-evidence-display {
-  margin-top: 4px;
   font-size: 12px;
   color: var(--green-700);
   font-style: italic;
 }
+.evidence-edit-btn { font-size: 12px; }
 .item-completed-by { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 
 /* Gate panel */
