@@ -7,8 +7,12 @@
 -- 1. Add technology to template_versions so each version is tagged to
 --    one of the three NNEL project verticals.
 --    Default 'solar_pv' keeps the existing '1.0' version correct.
+-- NOTE: plain MySQL (e.g. Railway's MySQL plugin) doesn't support the
+-- "IF NOT EXISTS" clause on ADD COLUMN -- that's a MariaDB-only extension.
+-- Dropped here so this runs on both engines; this is a one-time migration
+-- against a fresh install anyway, so the guard was never load-bearing.
 ALTER TABLE template_versions
-  ADD COLUMN IF NOT EXISTS technology ENUM('solar_pv','biofuels','abatement')
+  ADD COLUMN technology ENUM('solar_pv','biofuels','abatement')
     NOT NULL DEFAULT 'solar_pv'
   AFTER version;
 
