@@ -535,7 +535,7 @@ textarea { resize: vertical; min-height: 80px; }
 /* =========================================================
    PORTFOLIO PAGE
    ========================================================= */
-.page-main { padding: 28px 0 48px; display: flex; flex-direction: column; gap: 28px; }
+.page-main { padding-top: 28px; padding-bottom: 48px; display: flex; flex-direction: column; gap: 28px; }
 
 /* KPI cards */
 .kpi-grid {
@@ -878,7 +878,7 @@ textarea { resize: vertical; min-height: 80px; }
 .section-tab:hover  { color: var(--gray-700); }
 .section-tab.active { color: var(--green-700); border-bottom-color: var(--green-700); }
 
-.section-content { padding: 24px 0 48px; }
+.section-content { padding-top: 24px; padding-bottom: 48px; }
 
 /* Checklist */
 /* Checklist progress bar */
