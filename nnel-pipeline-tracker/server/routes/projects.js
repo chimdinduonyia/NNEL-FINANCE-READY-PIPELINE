@@ -46,14 +46,32 @@ async function create(req, res) {
   let body;
   try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
 
-  const { name, description, capex_usd, technology, is_at_risk,
+  const { name, description, capex_amount, capex_currency, capex_usd_equivalent,
+          capacity, location, technology, is_at_risk,
           objectives, justification, benefits, template_version_id } = body;
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return sendError(res, 400, 'name is required');
   }
-  const capex = parseFloat(capex_usd);
-  if (isNaN(capex) || capex < 0) {
-    return sendError(res, 400, 'capex_usd must be a non-negative number');
+
+  // CAPEX: capex_usd stays the always-USD figure the gate-routing DOA
+  // thresholds compare against (see getRequiredAuthority). When the deal is
+  // quoted in NGN, the USD-equivalent must be supplied explicitly -- never
+  // auto-converted, so there's no guessed exchange rate sitting behind a
+  // Board-facing routing decision.
+  const currency = capex_currency === 'NGN' ? 'NGN' : 'USD';
+  const amount = parseFloat(capex_amount);
+  if (isNaN(amount) || amount < 0) {
+    return sendError(res, 400, 'capex_amount must be a non-negative number');
+  }
+  let capex;
+  if (currency === 'NGN') {
+    capex = parseFloat(capex_usd_equivalent);
+    if (isNaN(capex) || capex < 0) {
+      return sendError(res, 400,
+        'A USD-equivalent CAPEX value is required when quoting in NGN, so the gate-routing threshold check has a USD figure to compare against');
+    }
+  } else {
+    capex = amount;
   }
 
   const conn = await pool.getConnection();
@@ -92,10 +110,12 @@ async function create(req, res) {
 
     // Insert the project row
     const [result] = await conn.execute(
-      `INSERT INTO projects (name, description, capex_usd, technology, is_at_risk,
+      `INSERT INTO projects (name, description, capex_usd, capex_currency, capex_amount,
+                            capacity, location, technology, is_at_risk,
                             objectives, justification, benefits, template_version, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name.trim(), description || null, capex.toFixed(2),
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name.trim(), description || null, capex.toFixed(2), currency, amount.toFixed(2),
+       capacity || null, location || null,
        technology || null, is_at_risk ? 1 : 0,
        objectives || null, justification || null, benefits || null,
        tv.version, user.id]
@@ -181,8 +201,9 @@ async function getOne(req, res, params) {
 
   // Fetch project details
   const [[project]] = await pool.execute(
-    `SELECT id, name, description, capex_usd, current_stage, status,
-            template_version, created_by, created_at, updated_at,
+    `SELECT id, name, description, capex_usd, capex_currency, capex_amount,
+            capacity, location, technology, is_at_risk,
+            current_stage, status, template_version, created_by, created_at, updated_at,
             objectives, justification, benefits
      FROM projects WHERE id = ?`,
     [projectId]
@@ -260,10 +281,35 @@ async function update(req, res, params) {
   let body;
   try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
 
-  const allowed = ['name', 'description', 'capex_usd', 'technology', 'is_at_risk',
-                   'objectives', 'justification', 'benefits', 'status'];
   const setClauses = [];
   const values = [];
+
+  // CAPEX is derived, not a simple passthrough -- capex_usd, capex_currency,
+  // and capex_amount must always change together so they stay consistent.
+  // Same NGN-requires-explicit-USD-equivalent rule as project creation.
+  if (body.capex_amount !== undefined || body.capex_currency !== undefined) {
+    const currency = body.capex_currency === 'NGN' ? 'NGN' : 'USD';
+    const amount = parseFloat(body.capex_amount);
+    if (isNaN(amount) || amount < 0) {
+      return sendError(res, 400, 'capex_amount must be a non-negative number');
+    }
+    let capexUsd;
+    if (currency === 'NGN') {
+      capexUsd = parseFloat(body.capex_usd_equivalent);
+      if (isNaN(capexUsd) || capexUsd < 0) {
+        return sendError(res, 400,
+          'A USD-equivalent CAPEX value is required when quoting in NGN, so the gate-routing threshold check has a USD figure to compare against');
+      }
+    } else {
+      capexUsd = amount;
+    }
+    setClauses.push('capex_usd = ?', 'capex_currency = ?', 'capex_amount = ?');
+    values.push(capexUsd.toFixed(2), currency, amount.toFixed(2));
+  }
+
+  const allowed = ['name', 'description', 'technology', 'is_at_risk',
+                   'objectives', 'justification', 'benefits', 'status',
+                   'capacity', 'location'];
 
   for (const field of allowed) {
     if (body[field] !== undefined) {

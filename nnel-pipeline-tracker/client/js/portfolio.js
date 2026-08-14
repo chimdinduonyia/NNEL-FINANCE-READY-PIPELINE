@@ -80,7 +80,7 @@ function renderPending() {
   const items = pendingList.map(d => `
     <div class="pending-item">
       <div style="flex:1;min-width:0;">
-        <div class="item-project">${api.fmt.escape(d.project_name)}</div>
+        <div class="item-project">${api.fmt.escape(d.project_name.toUpperCase())}</div>
         <div class="item-stage">Stage ${d.stage_number}: ${api.fmt.escape(d.stage_name)} · Position ${d.chain_position}/${d.total_in_chain} in chain</div>
       </div>
       <div class="item-wait">${d.days_waiting}d waiting</div>
@@ -107,7 +107,7 @@ function renderRejected() {
   const items = rejectedList.map(d => `
     <div class="rejected-item">
       <div class="item-body">
-        <div class="item-project">${api.fmt.escape(d.project_name)}</div>
+        <div class="item-project">${api.fmt.escape(d.project_name.toUpperCase())}</div>
         <div class="item-stage">Stage ${d.stage_number}: ${api.fmt.escape(d.stage_name)} · NO-GO decision on ${api.fmt.date(d.decided_at)}</div>
         <div class="item-approver">${api.fmt.escape(d.decided_by_name)} · ${d.authority ? d.authority.replace(/_/g,'-').toUpperCase() : ''}</div>
         <div class="item-rationale">"${api.fmt.escape(d.rationale)}"</div>
@@ -213,7 +213,7 @@ function renderProjectCard(p) {
 
   return `<div class="project-card ${p.is_at_risk ? 'at-risk' : ''}">
     <div>
-      <div class="card-title">${api.fmt.escape(p.name)}</div>
+      <div class="card-title">${api.fmt.escape(p.name.toUpperCase())}</div>
       <div class="card-meta mt-8">
         ${techBadge}
         ${vdrBadge}
@@ -258,7 +258,10 @@ function setupNewProjectModal() {
   const errEl     = document.getElementById('np-error');
 
   const openModal  = () => { modal.classList.remove('hidden'); };
-  const closeModal = () => { modal.classList.add('hidden'); form.reset(); errEl.classList.add('hidden'); };
+  const closeModal = () => {
+    modal.classList.add('hidden'); form.reset(); errEl.classList.add('hidden');
+    document.getElementById('np-usd-equiv-group')?.classList.add('hidden');
+  };
 
   // Cache of all template versions (fetched once on first open)
   let allTemplateVersions = null;
@@ -302,12 +305,24 @@ function setupNewProjectModal() {
     populateTemplatePicker(e.target.value);
   });
 
+  // Show the USD-equivalent field only when NGN is selected -- it's the
+  // figure the $50M gate-routing threshold check actually uses.
+  const currencySel  = document.getElementById('np-capex-currency');
+  const usdEquivGroup = document.getElementById('np-usd-equiv-group');
+  currencySel?.addEventListener('change', () => {
+    usdEquivGroup.classList.toggle('hidden', currencySel.value !== 'NGN');
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errEl.classList.add('hidden');
 
     const name            = document.getElementById('np-name').value.trim();
-    const capex           = parseFloat(document.getElementById('np-capex').value);
+    const capexAmount     = parseFloat(document.getElementById('np-capex-amount').value);
+    const capexCurrency   = document.getElementById('np-capex-currency').value;
+    const capexUsdEquiv   = document.getElementById('np-capex-usd-equiv').value;
+    const capacity        = document.getElementById('np-capacity').value.trim();
+    const location         = document.getElementById('np-location').value.trim();
     const tech            = document.getElementById('np-tech').value.trim();
     const desc            = document.getElementById('np-desc').value.trim();
     const objectives      = document.getElementById('np-objectives')?.value.trim() || null;
@@ -316,13 +331,25 @@ function setupNewProjectModal() {
     const templateVersionId = document.getElementById('np-template')?.value || null;
 
     if (!name) { errEl.textContent = 'Project name is required.'; errEl.classList.remove('hidden'); return; }
-    if (isNaN(capex) || capex < 0) { errEl.textContent = 'Valid CAPEX is required.'; errEl.classList.remove('hidden'); return; }
+    if (isNaN(capexAmount) || capexAmount < 0) {
+      errEl.textContent = 'Valid CAPEX is required.'; errEl.classList.remove('hidden'); return;
+    }
+    if (capexCurrency === 'NGN' && (capexUsdEquiv === '' || isNaN(parseFloat(capexUsdEquiv)) || parseFloat(capexUsdEquiv) < 0)) {
+      errEl.textContent = 'A USD equivalent is required when CAPEX is quoted in NGN.';
+      errEl.classList.remove('hidden'); return;
+    }
 
     const submitBtn = form.querySelector('button[type=submit]');
     submitBtn.disabled = true;
     try {
       await api.post('/api/projects', {
-        name, capex_usd: capex, description: desc || null, technology: tech || null,
+        name,
+        capex_amount: capexAmount,
+        capex_currency: capexCurrency,
+        capex_usd_equivalent: capexCurrency === 'NGN' ? parseFloat(capexUsdEquiv) : undefined,
+        capacity: capacity || null,
+        location: location || null,
+        description: desc || null, technology: tech || null,
         objectives, justification, benefits,
         template_version_id: templateVersionId ? parseInt(templateVersionId, 10) : null,
       });

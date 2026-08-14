@@ -35,9 +35,10 @@
   --text:      var(--gray-900);
   --text-muted: var(--gray-500);
 
-  --radius-sm: 4px;
-  --radius:    8px;
-  --radius-lg: 12px;
+  --radius-sm:      4px;
+  --radius:         8px;
+  --radius-lg:      12px;
+  --radius-control: 5px; /* buttons + text inputs/selects/textareas only */
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
   --shadow:    0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
   --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
@@ -175,7 +176,7 @@ input, textarea, select { font-family: inherit; }
   gap: 6px;
   padding: 8px 16px;
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -250,7 +251,7 @@ select,
 textarea {
   padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
@@ -302,13 +303,13 @@ textarea { resize: vertical; min-height: 80px; }
   font-weight: 600;
 }
 .pw-rules li.met::before {
-  content: '✓';
+  content: '';
   border-color: var(--green-600);
-  background: var(--green-600);
-  color: #fff;
-  font-size: 10px;
-  line-height: 13px;
-  text-align: center;
+  background-color: var(--green-600);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpolyline points='3.5,8.5 6.5,11.5 12.5,4.5' fill='none' stroke='white' stroke-width='2' stroke-linecap='square' stroke-linejoin='miter'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 9px 9px;
 }
 .pw-match { font-size: 12px; margin-top: 6px; font-weight: 600; }
 .pw-match.match    { color: var(--green-700); }

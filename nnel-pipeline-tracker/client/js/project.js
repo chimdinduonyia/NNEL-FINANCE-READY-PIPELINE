@@ -68,7 +68,7 @@ async function loadProject() {
   }
 
   viewStage = null; // any reload (e.g. member add) returns to working view
-  document.title = `${project.name} | NNEL Pipeline Tracker`;
+  document.title = `${project.name.toUpperCase()} | NNEL Pipeline Tracker`;
   renderHeader();
   renderPipelineStrip();
   renderTabs();
@@ -78,7 +78,7 @@ async function loadProject() {
 // ---- Header ----------------------------------------------------------------
 function renderHeader() {
   const el = document.getElementById('project-header');
-  document.getElementById('project-name').textContent = project.name;
+  document.getElementById('project-name').textContent = project.name.toUpperCase();
   document.getElementById('project-meta').innerHTML = [
     api.fmt.statusBadge(project.status),
     project.technology ? `<span class="badge badge-outline">${api.fmt.escape(project.technology)}</span>` : '',
@@ -1120,8 +1120,28 @@ function showEditProjectPanel() {
           <div class="form-hint">Template is locked at project creation and cannot be changed.</div>
         </div>
         <div class="form-group">
-          <label>CAPEX (USD)</label>
-          <input type="number" id="epp-capex" value="${project.capex_usd}" min="0">
+          <label>CAPEX</label>
+          <div class="flex gap-8">
+            <input type="number" id="epp-capex-amount" value="${project.capex_amount ?? project.capex_usd}" min="0" style="flex:1;">
+            <select id="epp-capex-currency" style="max-width:92px;">
+              <option value="USD" ${project.capex_currency !== 'NGN' ? 'selected' : ''}>USD</option>
+              <option value="NGN" ${project.capex_currency === 'NGN' ? 'selected' : ''}>NGN</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group ${project.capex_currency === 'NGN' ? '' : 'hidden'}" id="epp-usd-equiv-group">
+          <label>USD Equivalent <span class="form-hint">(used for the gate-routing threshold check)</span></label>
+          <input type="number" id="epp-capex-usd-equiv" value="${project.capex_currency === 'NGN' ? project.capex_usd : ''}" min="0">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Capacity <span class="form-hint">(optional)</span></label>
+            <input type="text" id="epp-capacity" value="${api.fmt.escape(project.capacity ?? '')}" placeholder="e.g. 50 MW">
+          </div>
+          <div class="form-group">
+            <label>Location <span class="form-hint">(optional)</span></label>
+            <input type="text" id="epp-location" value="${api.fmt.escape(project.location ?? '')}" placeholder="e.g. Kano State, Nigeria">
+          </div>
         </div>
         <div class="form-group">
           <label>Description</label>
@@ -1153,17 +1173,38 @@ function showEditProjectPanel() {
   panel.querySelector('#epp-cancel').addEventListener('click', close);
   panel.addEventListener('click', e => { if (e.target === panel) close(); });
 
+  const eppCurrencySel = panel.querySelector('#epp-capex-currency');
+  eppCurrencySel.addEventListener('change', () => {
+    panel.querySelector('#epp-usd-equiv-group').classList.toggle('hidden', eppCurrencySel.value !== 'NGN');
+  });
+
   panel.querySelector('#epp-save').addEventListener('click', async () => {
     const errEl = panel.querySelector('#epp-error');
     errEl.classList.add('hidden');
     const name = panel.querySelector('#epp-name').value.trim();
     if (!name) { errEl.textContent = 'Project name is required.'; errEl.classList.remove('hidden'); return; }
+
+    const capexAmount   = parseFloat(panel.querySelector('#epp-capex-amount').value);
+    const capexCurrency = eppCurrencySel.value;
+    const capexUsdEquiv = panel.querySelector('#epp-capex-usd-equiv').value;
+    if (isNaN(capexAmount) || capexAmount < 0) {
+      errEl.textContent = 'Valid CAPEX is required.'; errEl.classList.remove('hidden'); return;
+    }
+    if (capexCurrency === 'NGN' && (capexUsdEquiv === '' || isNaN(parseFloat(capexUsdEquiv)) || parseFloat(capexUsdEquiv) < 0)) {
+      errEl.textContent = 'A USD equivalent is required when CAPEX is quoted in NGN.';
+      errEl.classList.remove('hidden'); return;
+    }
+
     const saveBtn = panel.querySelector('#epp-save');
     saveBtn.disabled = true;
     try {
       await api.patch(`/api/projects/${projectId}`, {
         name,
-        capex_usd: parseFloat(panel.querySelector('#epp-capex').value) || 0,
+        capex_amount: capexAmount,
+        capex_currency: capexCurrency,
+        capex_usd_equivalent: capexCurrency === 'NGN' ? parseFloat(capexUsdEquiv) : undefined,
+        capacity: panel.querySelector('#epp-capacity').value.trim() || null,
+        location: panel.querySelector('#epp-location').value.trim() || null,
         description:   panel.querySelector('#epp-desc').value.trim() || null,
         objectives:    panel.querySelector('#epp-objectives').value.trim() || null,
         justification: panel.querySelector('#epp-justification').value.trim() || null,
@@ -1196,7 +1237,7 @@ function showDeleteProjectModal() {
         <button class="btn btn-ghost btn-sm" id="dpm-close">✕</button>
       </div>
       <div class="card-body" style="display:flex;flex-direction:column;gap:16px;">
-        <p style="font-size:14px;">You are about to permanently archive <strong>${api.fmt.escape(project.name)}</strong>.
+        <p style="font-size:14px;">You are about to permanently archive <strong>${api.fmt.escape(project.name.toUpperCase())}</strong>.
           The project will be removed from the active portfolio. All audit records and gate decisions are preserved.</p>
         <p class="text-sm text-muted">Type <strong>DELETE</strong> below to confirm:</p>
         <input type="text" id="dpm-confirm" placeholder="Type DELETE here" autocomplete="off"

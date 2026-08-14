@@ -76,8 +76,14 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>CAPEX (USD) *</label>
-              <input type="number" id="np-capex" min="0" step="1000" placeholder="e.g. 45000000">
+              <label>CAPEX *</label>
+              <div class="flex gap-8">
+                <input type="number" id="np-capex-amount" min="0" step="1000" placeholder="e.g. 45000000" style="flex:1;">
+                <select id="np-capex-currency" style="max-width:92px;">
+                  <option value="USD" selected>USD</option>
+                  <option value="NGN">NGN</option>
+                </select>
+              </div>
             </div>
             <div class="form-group">
               <label>Project Vertical</label>
@@ -87,6 +93,20 @@
                 <option value="Biofuels">Biofuels</option>
                 <option value="Abatement">Abatement</option>
               </select>
+            </div>
+          </div>
+          <div class="form-group hidden" id="np-usd-equiv-group">
+            <label>USD Equivalent * <span class="form-hint">(used for the gate-routing threshold check)</span></label>
+            <input type="number" id="np-capex-usd-equiv" min="0" step="1000" placeholder="e.g. 500000">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Capacity <span class="form-hint">(optional)</span></label>
+              <input type="text" id="np-capacity" placeholder="e.g. 50 MW">
+            </div>
+            <div class="form-group">
+              <label>Location <span class="form-hint">(optional)</span></label>
+              <input type="text" id="np-location" placeholder="e.g. Kano State, Nigeria">
             </div>
           </div>
           <div class="form-group">

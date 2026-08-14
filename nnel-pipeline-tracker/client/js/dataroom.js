@@ -20,10 +20,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  document.title = `${data.project.name} | Data Room | NNEL`;
+  document.title = `${data.project.name.toUpperCase()} | Data Room | NNEL`;
 
   // Show project header
-  document.getElementById('vdr-project-name').textContent = data.project.name;
+  document.getElementById('vdr-project-name').textContent = data.project.name.toUpperCase();
   document.getElementById('vdr-meta').innerHTML = [
     `<span class="vdr-meta-item">Stage <strong>${data.project.current_stage}</strong>: ${api.fmt.escape(data.project.stage_name)}</span>`,
     `<span class="vdr-meta-item">CAPEX <strong>${api.fmt.currency(data.project.capex_usd)}</strong></span>`,

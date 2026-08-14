@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  document.title = `${data.project.name} | Internal Memo`;
+  document.title = `${data.project.name.toUpperCase()} | Internal Memo`;
   document.getElementById('memo-status').style.display = 'none';
 
   const memoEl = document.getElementById('memo');
@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Pre-fill the editable Subject field with the project name
   const subjectEl = document.getElementById('field-subject');
-  if (subjectEl) subjectEl.value = `${data.project.name}: Pipeline Status`;
+  if (subjectEl) subjectEl.value = `${data.project.name.toUpperCase()}: Pipeline Status`;
 });
 
 function showStatus(msg) {
@@ -63,7 +63,7 @@ function buildMemo(d) {
     <div class="memo-section">
       <h2>1. Project Overview</h2>
       <table class="memo-table">
-        <tr><td width="180"><strong>Project Name</strong></td><td>${esc(p.name)}</td></tr>
+        <tr><td width="180"><strong>Project Name</strong></td><td>${esc(p.name.toUpperCase())}</td></tr>
         <tr><td><strong>Technology Vertical</strong></td><td>${esc(p.technology ?? '-')}</td></tr>
         <tr><td><strong>CAPEX (USD)</strong></td><td>${api.fmt.currency(p.capex_usd)}</td></tr>
         <tr><td><strong>Current Stage</strong></td>
