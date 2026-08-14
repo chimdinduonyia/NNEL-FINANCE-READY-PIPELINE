@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  api.initUserMenu(currentUser);
+  api.initSidebar(currentUser);
 
   // Password show/hide — delegate from document so it works inside modals
   document.addEventListener('click', e => {

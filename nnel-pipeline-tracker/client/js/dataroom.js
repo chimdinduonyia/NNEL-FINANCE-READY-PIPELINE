@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const user = await api.getMe();
   if (!user) return;
 
-  api.initUserMenu(user);
+  api.initSidebar(user);
 
   const params    = new URLSearchParams(window.location.search);
   const projectId = params.get('id');

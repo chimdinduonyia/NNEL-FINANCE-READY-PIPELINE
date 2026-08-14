@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   currentUser = await api.getMe();
   if (!currentUser) return; // api redirects to login
 
-  api.initUserMenu(currentUser);
+  api.initSidebar(currentUser);
 
   if (['admin','project_manager'].includes(currentUser.system_role)) {
     document.getElementById('new-project-btn').classList.remove('hidden');

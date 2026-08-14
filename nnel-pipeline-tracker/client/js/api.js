@@ -67,45 +67,101 @@ const api = {
   },
 
   /**
-   * Populates the header user menu on every page.
-   * Call once after getMe() resolves. Expects the page to have:
-   *   <span id="user-name">      — username label
-   *   <div id="user-avatar">     — avatar circle (gets the first letter)
-   *   <div id="avatar-dropdown"> — dropdown container (gets menu items)
+   * Builds the app-wide collapsible left sidebar (nav + account snippet).
+   * Call once after getMe() resolves. Expects the page to have a single
+   * empty element: <aside class="sidebar" id="sidebar"></aside> — this
+   * function owns everything inside it.
+   *
+   * Collapse behaviour: the user's expand/collapse preference is
+   * remembered (localStorage) and reused on every page EXCEPT the project
+   * view, which always starts collapsed — checklists and tabs need the
+   * width. Manually toggling on the project page still updates the shared
+   * preference for other pages.
    */
-  initUserMenu(user) {
-    const nameEl    = document.getElementById('user-name');
-    const avatarEl  = document.getElementById('user-avatar');
-    const dropdownEl= document.getElementById('avatar-dropdown');
-    if (!user || !dropdownEl) return;
-
-    if (nameEl)   nameEl.textContent   = user.full_name;
-    if (avatarEl) avatarEl.textContent = user.full_name.trim().charAt(0).toUpperCase();
+  initSidebar(user) {
+    const sidebar = document.getElementById('sidebar');
+    if (!user || !sidebar) return;
 
     const ROLE_LABELS = { admin: 'Administrator', project_manager: 'Project Manager', user: 'User' };
     const roleLabel = ROLE_LABELS[user.system_role] || 'User';
-    const iconTemplates = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="1" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><line x1="4.5" y1="5" x2="9.5" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/><line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/><line x1="4.5" y1="11" x2="7.5" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/></svg>`;
-    const iconUsers     = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="vertical-align:middle;margin-right:6px;"><circle cx="7" cy="4.5" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 13C1.5 10 4 8 7 8s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/></svg>`;
-    const iconSignOut   = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="vertical-align:middle;margin-right:6px;"><polyline points="9.5,4.5 12.5,7 9.5,9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/><line x1="12.5" y1="7" x2="5" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/><polyline points="5,2 2,2 2,12 5,12" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
 
-    const adminLinks = user.system_role === 'admin' ? `
-      <a href="/templates.html" class="dd-item">${iconTemplates}Templates</a>
-      <a href="/users.html"     class="dd-item">${iconUsers}Users</a>
-      <hr class="dd-divider">` : user.system_role === 'project_manager' ? `
-      <a href="/templates.html" class="dd-item">${iconTemplates}Templates</a>
-      <hr class="dd-divider">` : '';
+    const iconDashboard = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="5.5" height="5.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1.5" width="5.5" height="5.5" stroke="currentColor" stroke-width="1.4"/><rect x="1.5" y="9" width="5.5" height="5.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5.5" height="5.5" stroke="currentColor" stroke-width="1.4"/></svg>`;
+    const iconTemplates = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><rect x="2" y="1" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.4"/><line x1="4.5" y1="5" x2="9.5" y2="5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><line x1="4.5" y1="11" x2="7.5" y2="11" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`;
+    const iconUsers     = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="4.5" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13C1.5 10 4 8 7 8s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`;
+    const iconSignOut   = `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><polyline points="9.5,4.5 12.5,7 9.5,9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/><line x1="12.5" y1="7" x2="5" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/><polyline points="5,2 2,2 2,12 5,12" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
+    const iconCollapse  = `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="1.5" width="11" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><line x1="5.5" y1="1.5" x2="5.5" y2="12.5" stroke="currentColor" stroke-width="1.4"/></svg>`;
 
-    dropdownEl.innerHTML = `
-      <div class="avatar-dropdown-inner">
-        <div class="avatar-dropdown-header">
-          <div class="dd-name">${this.fmt.escape(user.full_name)}</div>
-          <div class="dd-role">${roleLabel}</div>
+    const path = window.location.pathname;
+    const navItems = [
+      { href: '/', label: 'Dashboard', icon: iconDashboard,
+        match: p => p === '/' || p === '/index.html', roles: ['admin','project_manager','user'] },
+      { href: '/templates.html', label: 'Templates', icon: iconTemplates,
+        match: p => p === '/templates.html', roles: ['admin','project_manager'] },
+      { href: '/users.html', label: 'Users', icon: iconUsers,
+        match: p => p === '/users.html', roles: ['admin'] },
+    ].filter(i => i.roles.includes(user.system_role));
+
+    const navHtml = navItems.map(i => `
+      <a href="${i.href}" class="sidebar-link ${i.match(path) ? 'active' : ''}" title="${i.label}">
+        ${i.icon}<span class="sidebar-link-label">${i.label}</span>
+      </a>`).join('');
+
+    const STORAGE_KEY = 'nnel_sidebar_collapsed';
+    const isProjectView = path === '/project.html';
+    let collapsed = isProjectView ? true : localStorage.getItem(STORAGE_KEY) === '1';
+
+    sidebar.innerHTML = `
+      <a href="/" class="sidebar-brand">
+        <img src="/img/nnel-logo-light.png" alt="NNEL">
+        <span class="sidebar-brand-text">Finance-Ready Pipeline</span>
+      </a>
+      <nav class="sidebar-nav">${navHtml}</nav>
+      <div class="sidebar-toggle-row">
+        <button type="button" class="sidebar-toggle" id="sidebar-toggle-btn">
+          ${iconCollapse}<span class="sidebar-toggle-label">Collapse</span>
+        </button>
+      </div>
+      <div class="sidebar-account">
+        <div class="sidebar-account-row" id="sidebar-account-row">
+          <div class="sidebar-account-avatar">${user.full_name.trim().charAt(0).toUpperCase()}</div>
+          <div class="sidebar-account-info">
+            <div class="sidebar-account-name">${this.fmt.escape(user.full_name)}</div>
+            <div class="sidebar-account-role">${roleLabel}</div>
+          </div>
         </div>
-        ${adminLinks}
-        <button class="dd-item dd-danger" id="logout-btn">${iconSignOut}Sign out</button>
+        <div class="sidebar-account-dropdown" id="sidebar-account-dropdown">
+          <div class="avatar-dropdown-inner">
+            <div class="avatar-dropdown-header">
+              <div class="dd-name">${this.fmt.escape(user.full_name)}</div>
+              <div class="dd-role">${roleLabel}</div>
+            </div>
+            <button class="dd-item dd-danger" id="logout-btn">${iconSignOut}Sign out</button>
+          </div>
+        </div>
       </div>`;
 
-    dropdownEl.querySelector('#logout-btn').addEventListener('click', () => this.logout());
+    const toggleBtn = document.getElementById('sidebar-toggle-btn');
+    const applyCollapsed = () => {
+      sidebar.classList.toggle('collapsed', collapsed);
+      toggleBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+    };
+    applyCollapsed();
+
+    toggleBtn.addEventListener('click', () => {
+      collapsed = !collapsed;
+      localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0');
+      applyCollapsed();
+    });
+
+    const accountRow = document.getElementById('sidebar-account-row');
+    const accountDropdown = document.getElementById('sidebar-account-dropdown');
+    accountRow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      accountDropdown.classList.toggle('open');
+    });
+    document.addEventListener('click', () => accountDropdown.classList.remove('open'));
+
+    document.getElementById('logout-btn').addEventListener('click', () => this.logout());
   },
 
   // Helpers

@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   currentUser = await api.getMe();
   if (!currentUser) return;
 
-  api.initUserMenu(currentUser);
+  api.initSidebar(currentUser);
 
   const params = new URLSearchParams(window.location.search);
   projectId = params.get('id');

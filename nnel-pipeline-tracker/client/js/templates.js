@@ -41,7 +41,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!currentUser) return;
   if (!['admin','project_manager'].includes(currentUser.system_role)) { window.location.href = '/'; return; }
 
-  api.initUserMenu(currentUser);
+  api.initSidebar(currentUser);
 
   // Tech tab switcher
   document.getElementById('tech-tabs').addEventListener('click', e => {

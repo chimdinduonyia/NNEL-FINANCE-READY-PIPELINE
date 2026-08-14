@@ -108,26 +108,9 @@
   </style>
 </head>
 <body>
-  <header id="app-header">
-    <div class="container header-inner">
-      <div id="vdr-nav">
-        <a href="/" class="back-link" id="back-link">← Portfolio</a>
-      </div>
-      <div class="logo">
-        <img src="/img/nnel-logo-light.png" alt="NNEL" class="header-logo">
-        <span class="logo-text">Finance-Ready Pipeline Tracker</span>
-      </div>
-      <div class="header-user" id="header-user">
-        <div class="user-menu">
-          <span class="user-menu-name" id="user-name"></span>
-          <div class="avatar-wrapper">
-            <div class="avatar" id="user-avatar"></div>
-            <div class="avatar-dropdown" id="avatar-dropdown"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </header>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="app-content">
 
   <!-- Project header -->
   <div class="vdr-header" id="vdr-header" style="display:none;">
@@ -149,5 +132,8 @@
 
   <script src="/js/api.js"></script>
   <script src="/js/dataroom.js"></script>
+
+    </div>
+  </div>
 </body>
 </html>

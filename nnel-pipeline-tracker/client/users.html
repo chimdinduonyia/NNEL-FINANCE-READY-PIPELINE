@@ -10,24 +10,9 @@
   <link rel="stylesheet" href="/css/main.css">
 </head>
 <body>
-  <header id="app-header">
-    <div class="container header-inner">
-      <a href="/" class="back-link">← Portfolio</a>
-      <div class="logo">
-        <img src="/img/nnel-logo-light.png" alt="NNEL" class="header-logo">
-        <span class="logo-text">Finance-Ready Pipeline Tracker</span>
-      </div>
-      <div class="header-user" id="header-user">
-        <div class="user-menu">
-          <span class="user-menu-name" id="user-name"></span>
-          <div class="avatar-wrapper">
-            <div class="avatar" id="user-avatar"></div>
-            <div class="avatar-dropdown" id="avatar-dropdown"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </header>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="app-content">
 
   <main class="container page-main">
     <div class="flex items-center justify-between" style="margin-bottom:24px;">
@@ -147,5 +132,8 @@
 
   <script src="/js/api.js"></script>
   <script src="/js/users.js"></script>
+
+    </div>
+  </div>
 </body>
 </html>
