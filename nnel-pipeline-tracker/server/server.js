@@ -99,6 +99,7 @@ async function handleRequest(req, res) {
 
   // ---- Auth ---------------------------------------------------------------
   if (method === 'POST' && path === '/api/auth/login')   return authRoutes.login(req, res);
+  if (method === 'POST' && path === '/api/auth/signup')  return authRoutes.signup(req, res);
   if (method === 'GET'  && path === '/api/auth/me')      return authRoutes.me(req, res);
 
   // ---- Portfolio & decisions queue ----------------------------------------
@@ -277,6 +278,7 @@ server.listen(PORT, () => {
   console.log('');
   console.log('  Auth:');
   console.log('    POST /api/auth/login');
+  console.log('    POST /api/auth/signup');
   console.log('    GET  /api/auth/me');
   console.log('');
   console.log('  Projects:');

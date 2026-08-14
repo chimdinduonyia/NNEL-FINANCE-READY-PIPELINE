@@ -55,6 +55,12 @@ const api = {
     return data;
   },
 
+  async signup(full_name, email, password, workstream) {
+    const data = await this._fetch('POST', '/api/auth/signup', { full_name, email, password, workstream });
+    if (data?.token) this.setToken(data.token);
+    return data;
+  },
+
   logout() {
     this.clearToken();
     window.location.href = '/login.html';

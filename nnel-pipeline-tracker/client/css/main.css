@@ -274,6 +274,54 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .pw-toggle:hover { color: var(--gray-700); }
 
+/* Password strength checklist (signup page) */
+.pw-rules {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.pw-rules li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.pw-rules li::before {
+  content: '';
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--gray-400);
+}
+.pw-rules li.met {
+  color: var(--green-700);
+  font-weight: 600;
+}
+.pw-rules li.met::before {
+  content: '✓';
+  border-color: var(--green-600);
+  background: var(--green-600);
+  color: #fff;
+  font-size: 10px;
+  line-height: 13px;
+  text-align: center;
+}
+.pw-match { font-size: 12px; margin-top: 6px; font-weight: 600; }
+.pw-match.match    { color: var(--green-700); }
+.pw-match.no-match { color: var(--red-700); }
+
+/* Login / signup footer link */
+.login-footer-link {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 24px;
+}
+
 /* ---- Messages ---- */
 .error-msg {
   background: var(--red-100);
