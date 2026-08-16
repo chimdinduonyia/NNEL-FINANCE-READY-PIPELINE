@@ -71,14 +71,20 @@ function renderTable() {
       : u.system_role === 'project_manager'
         ? '<span class="badge badge-blue">Project Manager</span>'
         : '<span class="badge badge-gray">User</span>';
-    const statusBadge = u.is_active
-      ? '<span class="badge badge-green">Active</span>'
-      : '<span class="badge badge-red">Deleted</span>';
+    const statusBadge = !u.is_active
+      ? '<span class="badge badge-red">Deleted</span>'
+      : u.is_pending
+        ? '<span class="badge badge-amber">Pending Invite</span>'
+        : '<span class="badge badge-green">Active</span>';
     const isSelf      = u.id === currentUser.id;
 
     const statusBtn = isSelf ? '' : (u.is_active
       ? `<button class="btn btn-ghost btn-sm" data-action="delete" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}" style="color:var(--red-700);">Delete</button>`
       : `<button class="btn btn-primary btn-sm" data-action="activate" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">Activate</button>`);
+
+    const resendBtn = (u.is_pending && u.is_active)
+      ? `<button class="btn btn-ghost btn-sm" data-action="resend-invite" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">Resend Invite</button>`
+      : '';
 
     const wsBadge   = u.workstream ? `<span class="badge badge-outline" style="text-transform:capitalize;font-size:10px;">${u.workstream}</span>` : '';
     const authLabel = u.authority  ? (u.authority.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())) : 'SS';
@@ -98,6 +104,7 @@ function renderTable() {
             data-workstream="${u.workstream||''}" data-authority="${u.authority||'ss'}">Edit</button>
           <button class="btn btn-ghost btn-sm" data-action="reset-pw"
             data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">Reset password</button>
+          ${resendBtn}
           ${statusBtn}
         </div>
       </td>
@@ -137,6 +144,26 @@ function handleAction(btn) {
     case 'delete':
       showDeleteUserModal(uid, name);
       break;
+    case 'resend-invite':
+      resendInvite(uid, name, btn);
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Resend a pending invite (regenerates the token, invalidating the old link)
+// ---------------------------------------------------------------------------
+async function resendInvite(userId, name, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    await api.post(`/api/users/${userId}/resend-invite`, {});
+    btn.textContent = 'Sent!';
+    setTimeout(() => { btn.textContent = 'Resend Invite'; btn.disabled = false; }, 2000);
+  } catch (err) {
+    alert('Could not resend invite: ' + err.message);
+    btn.textContent = 'Resend Invite';
+    btn.disabled = false;
   }
 }
 
@@ -226,11 +253,11 @@ function showDeleteUserModal(userId, name) {
 // New / Edit user modal
 // ---------------------------------------------------------------------------
 function setupUserModal() {
-  const modal     = document.getElementById('user-modal');
-  const form      = document.getElementById('user-form');
-  const errEl     = document.getElementById('modal-error');
-  const pwGroup   = document.getElementById('password-group');
-  const submitBtn = document.getElementById('modal-submit-btn');
+  const modal      = document.getElementById('user-modal');
+  const form       = document.getElementById('user-form');
+  const errEl      = document.getElementById('modal-error');
+  const inviteNote = document.getElementById('invite-note');
+  const submitBtn  = document.getElementById('modal-submit-btn');
 
   const openModal  = () => modal.classList.remove('hidden');
   const closeModal = () => {
@@ -242,9 +269,8 @@ function setupUserModal() {
 
   document.getElementById('new-user-btn').addEventListener('click', () => {
     document.getElementById('modal-title').textContent = 'New User';
-    submitBtn.textContent = 'Create User';
-    pwGroup.classList.remove('hidden');
-    document.getElementById('u-password').required = true;
+    submitBtn.textContent = 'Create User & Send Invite';
+    inviteNote.classList.remove('hidden');
     openModal();
   });
 
@@ -259,7 +285,6 @@ function setupUserModal() {
     const editId    = document.getElementById('edit-user-id').value;
     const fullName  = document.getElementById('u-name').value.trim();
     const email     = document.getElementById('u-email').value.trim();
-    const password  = document.getElementById('u-password').value;
     const role      = document.getElementById('u-role').value;
     const workstream= document.getElementById('u-workstream')?.value || null;
     const authority = document.getElementById('u-authority')?.value  || 'ss';
@@ -270,7 +295,14 @@ function setupUserModal() {
         const body = { full_name: fullName, email, system_role: role, workstream, authority };
         await api.patch(`/api/users/${editId}`, body);
       } else {
-        await api.post('/api/users', { full_name: fullName, email, password, system_role: role, workstream, authority });
+        const result = await api.post('/api/users', { full_name: fullName, email, system_role: role, workstream, authority });
+        if (result && result.email_sent === false) {
+          errEl.textContent = `User created, but the invite email failed to send: ${result.email_error}. Use "Resend Invite" from the table once that's fixed.`;
+          errEl.classList.remove('hidden');
+          await loadUsers();
+          submitBtn.disabled = false;
+          return;
+        }
       }
       closeModal();
       await loadUsers();
@@ -295,11 +327,7 @@ function openEditModal(userId, name, email, role, workstream, authority) {
   const authEl = document.getElementById('u-authority');
   if (authEl) authEl.value = authority || 'ss';
 
-  // Password field is not shown when editing — use Reset Password for that
-  const pwGroup = document.getElementById('password-group');
-  pwGroup.classList.add('hidden');
-  document.getElementById('u-password').required = false;
-  document.getElementById('u-password').value = '';
+  document.getElementById('invite-note').classList.add('hidden');
 
   document.getElementById('user-modal').classList.remove('hidden');
 }

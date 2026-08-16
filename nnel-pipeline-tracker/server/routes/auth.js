@@ -9,6 +9,7 @@
 
 require('dotenv').config();
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const pool = require('../db');
 const { requireLogin } = require('../middleware/auth');
@@ -22,6 +23,18 @@ const BCRYPT_ROUNDS = 12; // same work factor used everywhere else passwords are
 // (M1-M6 decision-makers) and 'external' (lender/observer accounts) are
 // assigned by an admin, not chosen by the person signing up.
 const SIGNUP_WORKSTREAMS = ['technical', 'commercial', 'finance', 'legal', 'risk', 'esg'];
+
+// Same rule used by both self-signup and invite-acceptance: 12+ chars,
+// letter, number, special character. Returns an error message, or null if
+// the password is fine.
+function passwordStrengthError(password) {
+  if (!password || typeof password !== 'string') return 'password is required';
+  if (password.length < 12) return 'Password must be at least 12 characters';
+  if (!/[A-Za-z]/.test(password)) return 'Password must include at least one letter';
+  if (!/[0-9]/.test(password)) return 'Password must include at least one number';
+  if (!/[^A-Za-z0-9]/.test(password)) return 'Password must include at least one special character';
+  return null;
+}
 
 /**
  * POST /api/auth/login
@@ -57,10 +70,21 @@ async function login(req, res) {
   const user = rows[0];
 
   // Always run bcrypt.compare to prevent timing attacks that reveal whether
-  // an email address exists in the system.
+  // an email address exists in the system. A pending-invite account has
+  // password_hash = NULL (bcrypt.compare would throw on a real null), so
+  // that case also falls back to the dummy hash here.
   const dummyHash = '$2b$12$invalidhashusedfortimingnormalization000000000000000000';
-  const hashToCompare = user ? user.password_hash : dummyHash;
+  const hashToCompare = (user && user.password_hash) ? user.password_hash : dummyHash;
   const passwordMatch = await bcrypt.compare(password, hashToCompare);
+
+  // Distinct message for "account exists but the invite hasn't been
+  // accepted yet" — unlike self-signup, these accounts are admin-
+  // provisioned for known people, so confirming that much is helpful
+  // rather than an account-enumeration risk.
+  if (user && user.password_hash === null) {
+    return sendError(res, 403,
+      "This account hasn't been activated yet. Check your email for an invite link, or ask an admin to resend it.");
+  }
 
   if (!user || !passwordMatch || !user.is_active) {
     return sendError(res, 401, 'Invalid email or password');
@@ -125,21 +149,8 @@ async function signup(req, res) {
   if (!email || typeof email !== 'string' || !email.trim()) {
     return sendError(res, 400, 'email is required');
   }
-  if (!password || typeof password !== 'string') {
-    return sendError(res, 400, 'password is required');
-  }
-  if (password.length < 12) {
-    return sendError(res, 400, 'Password must be at least 12 characters');
-  }
-  if (!/[A-Za-z]/.test(password)) {
-    return sendError(res, 400, 'Password must include at least one letter');
-  }
-  if (!/[0-9]/.test(password)) {
-    return sendError(res, 400, 'Password must include at least one number');
-  }
-  if (!/[^A-Za-z0-9]/.test(password)) {
-    return sendError(res, 400, 'Password must include at least one special character');
-  }
+  const pwError = passwordStrengthError(password);
+  if (pwError) return sendError(res, 400, pwError);
   if (!workstream || !SIGNUP_WORKSTREAMS.includes(workstream)) {
     return sendError(res, 400, `workstream must be one of: ${SIGNUP_WORKSTREAMS.join(', ')}`);
   }
@@ -195,6 +206,103 @@ async function signup(req, res) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// GET /api/auth/invite/:token
+// Public — lets the set-password page confirm the token is real before
+// showing the form, and greet the invitee by name. A flat 404 either way
+// (invalid, expired, or already-used token) so nothing is distinguishable
+// to a stranger poking at the URL.
+//
+// NOTE: expiry is compared against a timestamp generated here in Node
+// (an app-supplied `new Date()`), not SQL's NOW()/UTC_TIMESTAMP() — this
+// database's clock is known to run about an hour behind true UTC (see
+// RAILWAY_DEPLOY.md), while invite_expires_at itself was written using the
+// app's own correct clock (mysql2 converts the JS Date client-side, it
+// never asks the DB server what time it is). Comparing against the DB's
+// clock would silently extend every invite's real validity window by
+// however far that skew happens to be.
+// ---------------------------------------------------------------------------
+async function getInvite(req, res, params) {
+  const rawToken = params.token;
+  if (!rawToken) return sendError(res, 400, 'Invalid invite link');
+
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+  const [[invitee]] = await pool.execute(
+    `SELECT full_name, email FROM users
+     WHERE invite_token_hash = ? AND invite_expires_at > ? AND password_hash IS NULL`,
+    [tokenHash, new Date()]
+  );
+  if (!invitee) return sendError(res, 404, 'This invite link is invalid or has expired');
+
+  sendJSON(res, 200, { full_name: invitee.full_name, email: invitee.email });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/accept-invite
+// Public. Body: { token, password }
+// Sets the account's own password, clears the invite, and logs them
+// straight in (same response shape as login/signup) — no extra step.
+// ---------------------------------------------------------------------------
+async function acceptInvite(req, res) {
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid request body'); }
+
+  const { token, password } = body;
+  if (!token || typeof token !== 'string') return sendError(res, 400, 'token is required');
+
+  const pwError = passwordStrengthError(password);
+  if (pwError) return sendError(res, 400, pwError);
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  const [[invitee]] = await pool.execute(
+    `SELECT id, email, full_name, system_role FROM users
+     WHERE invite_token_hash = ? AND invite_expires_at > ? AND password_hash IS NULL`,
+    [tokenHash, new Date()]
+  );
+  if (!invitee) return sendError(res, 404, 'This invite link is invalid or has expired');
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `UPDATE users SET password_hash = ?, invite_token_hash = NULL, invite_expires_at = NULL
+       WHERE id = ?`,
+      [passwordHash, invitee.id]
+    );
+    await auditLog.log(conn, {
+      userId: invitee.id,
+      action: 'user_invite_accepted',
+      detail: { email: invitee.email },
+    });
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  const jwtToken = jwt.sign(
+    { userId: invitee.id },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
+  );
+
+  sendJSON(res, 200, {
+    token: jwtToken,
+    user: {
+      id: invitee.id,
+      email: invitee.email,
+      full_name: invitee.full_name,
+      system_role: invitee.system_role,
+    },
+  });
+}
+
 /**
  * GET /api/auth/me
  *
@@ -224,4 +332,4 @@ async function me(req, res) {
   });
 }
 
-module.exports = { login, signup, me };
+module.exports = { login, signup, getInvite, acceptInvite, me };

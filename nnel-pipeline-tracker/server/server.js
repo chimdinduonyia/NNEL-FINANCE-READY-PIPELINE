@@ -99,9 +99,14 @@ async function handleRequest(req, res) {
   }
 
   // ---- Auth ---------------------------------------------------------------
-  if (method === 'POST' && path === '/api/auth/login')   return authRoutes.login(req, res);
-  if (method === 'POST' && path === '/api/auth/signup')  return authRoutes.signup(req, res);
-  if (method === 'GET'  && path === '/api/auth/me')      return authRoutes.me(req, res);
+  if (method === 'POST' && path === '/api/auth/login')         return authRoutes.login(req, res);
+  if (method === 'POST' && path === '/api/auth/signup')        return authRoutes.signup(req, res);
+  if (method === 'POST' && path === '/api/auth/accept-invite') return authRoutes.acceptInvite(req, res);
+  if (method === 'GET'  && path === '/api/auth/me')            return authRoutes.me(req, res);
+
+  if (params = match('/api/auth/invite/:token', path)) {
+    if (method === 'GET') return authRoutes.getInvite(req, res, params);
+  }
 
   // ---- Portfolio & decisions queue ----------------------------------------
   if (method === 'GET' && path === '/api/portfolio')          return portfolioRoutes.getPortfolio(req, res);
@@ -126,6 +131,9 @@ async function handleRequest(req, res) {
   }
   if (params = match('/api/users/:id/status', path)) {
     if (method === 'PATCH') return userRoutes.setStatus(req, res, params);
+  }
+  if (params = match('/api/users/:id/resend-invite', path)) {
+    if (method === 'POST') return userRoutes.resendInvite(req, res, params);
   }
 
   // ---- Templates ----------------------------------------------------------

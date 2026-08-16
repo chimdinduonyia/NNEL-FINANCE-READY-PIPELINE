@@ -13,13 +13,26 @@
  */
 
 const bcrypt   = require('bcrypt');
+const crypto   = require('crypto');
 const pool     = require('../db');
 const { requireLogin } = require('../middleware/auth');
 const { sendJSON, sendError } = require('../utils/response');
 const { readBody }            = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
+const emailService = require('../services/email');
 
 const BCRYPT_ROUNDS = 12;
+const INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Generates a fresh invite token. Only the SHA-256 hash is ever stored —
+// the raw token goes in the email and nowhere else, same principle as never
+// storing a plaintext password.
+function generateInviteToken() {
+  const rawToken  = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const expiresAt = new Date(Date.now() + INVITE_EXPIRY_MS);
+  return { rawToken, tokenHash, expiresAt };
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/users
@@ -48,16 +61,19 @@ async function list(req, res) {
   }
 
   const [rows] = await pool.execute(
-    `SELECT id, email, full_name, system_role, is_active, workstream, authority, created_at, updated_at
+    `SELECT id, email, full_name, system_role, is_active, workstream, authority, created_at, updated_at,
+            (password_hash IS NULL) AS is_pending
      FROM users
      ORDER BY created_at ASC`
   );
-  sendJSON(res, 200, rows);
+  sendJSON(res, 200, rows.map(r => ({ ...r, is_pending: !!r.is_pending })));
 }
 
 // ---------------------------------------------------------------------------
 // POST /api/users
-// Creates a new user account. Hashes the password before storing.
+// Creates a new user account with NO password — an invite email is sent
+// instead, and the account can't log in until the recipient follows that
+// link and sets their own password (see routes/auth.js acceptInvite).
 // Returns 409 if the email is already taken.
 // ---------------------------------------------------------------------------
 async function create(req, res) {
@@ -68,7 +84,7 @@ async function create(req, res) {
   let body;
   try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
 
-  const { full_name, email, password, system_role, workstream, authority } = body;
+  const { full_name, email, system_role, workstream, authority } = body;
 
   if (!full_name || typeof full_name !== 'string' || !full_name.trim()) {
     return sendError(res, 400, 'full_name is required');
@@ -76,54 +92,119 @@ async function create(req, res) {
   if (!email || typeof email !== 'string' || !email.trim()) {
     return sendError(res, 400, 'email is required');
   }
-  if (!password || typeof password !== 'string') {
-    return sendError(res, 400, 'password is required');
-  }
-  if (password.length < 12) {
-    return sendError(res, 400, 'Password must be at least 12 characters');
-  }
   if (!['admin', 'project_manager', 'user'].includes(system_role)) {
     return sendError(res, 400, 'system_role must be "admin", "project_manager", or "user"');
   }
 
   const normalEmail = email.trim().toLowerCase();
 
-  // SECURITY: check uniqueness before hashing (bcrypt is intentionally slow)
   const [[existing]] = await pool.execute(
     'SELECT id FROM users WHERE email = ?',
     [normalEmail]
   );
   if (existing) return sendError(res, 409, 'A user with this email address already exists');
 
-  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const { rawToken, tokenHash, expiresAt } = generateInviteToken();
 
   const conn = await pool.getConnection();
+  let newUserId;
   try {
     await conn.beginTransaction();
     const [result] = await conn.execute(
-      `INSERT INTO users (email, full_name, password_hash, system_role, workstream, authority)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [normalEmail, full_name.trim(), passwordHash, system_role,
-       workstream || null, authority || 'ss']
+      `INSERT INTO users (email, full_name, password_hash, system_role, workstream, authority,
+                          invite_token_hash, invite_expires_at)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
+      [normalEmail, full_name.trim(), system_role,
+       workstream || null, authority || 'ss', tokenHash, expiresAt]
     );
+    newUserId = result.insertId;
     await auditLog.log(conn, {
       userId: user.id,
       action: 'user_created',
-      detail: { new_user_id: result.insertId, email: normalEmail, system_role },
+      detail: { new_user_id: newUserId, email: normalEmail, system_role },
     });
     await conn.commit();
-    sendJSON(res, 201, {
-      id: result.insertId,
-      email: normalEmail,
-      full_name: full_name.trim(),
-      system_role,
-    });
   } catch (err) {
     await conn.rollback();
     throw err;
   } finally {
     conn.release();
   }
+
+  // The account exists either way at this point — an email delivery
+  // problem shouldn't roll back account creation. The admin can use
+  // "Resend Invite" once whatever's wrong (bad address, Resend outage) is
+  // fixed, without having to recreate the account from scratch.
+  let emailSent = true;
+  let emailError;
+  try {
+    await emailService.sendInviteEmail({ to: normalEmail, fullName: full_name.trim(), token: rawToken });
+  } catch (err) {
+    emailSent  = false;
+    emailError = err.message;
+  }
+
+  sendJSON(res, 201, {
+    id: newUserId,
+    email: normalEmail,
+    full_name: full_name.trim(),
+    system_role,
+    email_sent: emailSent,
+    ...(emailSent ? {} : { email_error: emailError }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/users/:id/resend-invite
+// Regenerates the invite token (invalidating any earlier link) and re-sends
+// the email. Only valid for accounts that haven't set a password yet.
+// ---------------------------------------------------------------------------
+async function resendInvite(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+  if (user.system_role !== 'admin') return sendError(res, 403, 'Forbidden');
+
+  const targetId = parseInt(params.id, 10);
+  if (!targetId) return sendError(res, 400, 'Invalid user id');
+
+  const [[target]] = await pool.execute(
+    'SELECT id, email, full_name, password_hash FROM users WHERE id = ?',
+    [targetId]
+  );
+  if (!target) return sendError(res, 404, 'User not found');
+  if (target.password_hash !== null) {
+    return sendError(res, 409, 'This account has already set a password — there is no pending invite to resend');
+  }
+
+  const { rawToken, tokenHash, expiresAt } = generateInviteToken();
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      'UPDATE users SET invite_token_hash = ?, invite_expires_at = ? WHERE id = ?',
+      [tokenHash, expiresAt, targetId]
+    );
+    await auditLog.log(conn, {
+      userId: user.id,
+      action: 'user_invite_resent',
+      detail: { target_user_id: targetId, email: target.email },
+    });
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  try {
+    await emailService.sendInviteEmail({ to: target.email, fullName: target.full_name, token: rawToken });
+  } catch (err) {
+    return sendError(res, 502, `Invite token was reset, but the email failed to send: ${err.message}`);
+  }
+
+  sendJSON(res, 200, { resent: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -304,4 +385,4 @@ async function setStatus(req, res, params) {
   }
 }
 
-module.exports = { list, create, update, resetPassword, setStatus };
+module.exports = { list, create, resendInvite, update, resetPassword, setStatus };
