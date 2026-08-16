@@ -89,7 +89,7 @@ function renderPending() {
   `).join('');
 
   el.innerHTML = `<div class="pending-section">
-    <div class="section-title">⏳ Decisions awaiting you (${pendingList.length})</div>
+    <div class="section-title">${api.icons.clock}Decisions awaiting you (${pendingList.length})</div>
     ${items}
   </div>`;
   el.classList.remove('hidden');

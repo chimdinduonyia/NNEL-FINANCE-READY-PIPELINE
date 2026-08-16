@@ -128,11 +128,11 @@ function renderHeader() {
   const actionsEl = document.getElementById('project-actions');
   if (actionsEl) {
     const memoItem = (isAdmin() || isProjectLead())
-      ? `<a href="/memo.html?id=${projectId}" target="_blank" class="dd-item">📄 Export Memo</a>` : '';
+      ? `<a href="/memo.html?id=${projectId}" target="_blank" class="dd-item">${api.icons.document}Export Memo</a>` : '';
     const editItem = canManageTeam()
-      ? `<button class="dd-item" id="edit-project-btn">✏️ Edit Details</button>` : '';
+      ? `<button class="dd-item" id="edit-project-btn">${api.icons.pencil}Edit Details</button>` : '';
     const deleteItem = isAdmin()
-      ? `<button class="dd-item dd-danger" id="delete-project-btn">🗑 Delete Project</button>` : '';
+      ? `<button class="dd-item dd-danger" id="delete-project-btn">${api.icons.trash}Delete Project</button>` : '';
     const items = [memoItem, editItem, deleteItem].filter(Boolean);
 
     actionsEl.innerHTML = items.length ? `
@@ -870,9 +870,9 @@ async function renderGate(el) {
   if (isGateApprover() && stage?.status === 'submitted') {
     const pending = stageDocs.filter(d => d.status === 'submitted');
     if (pending.length > 0) {
-      parts.push(`<div class="error-msg" style="margin-bottom:8px;">
-        ⚠️ You must review all ${pending.length} submitted document${pending.length > 1 ? 's' : ''} above
-        (approve or return each one) before you can record a gate decision.
+      parts.push(`<div class="error-msg" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+        ${api.icons.warning}<span>You must review all ${pending.length} submitted document${pending.length > 1 ? 's' : ''} above
+        (approve or return each one) before you can record a gate decision.</span>
       </div>`);
     }
   }
@@ -979,7 +979,7 @@ function renderConditionsList(conditions, stageNum, canClose) {
   const closedCount = conditions.filter(c => c.is_closed).length;
   const items = conditions.map(c => `
     <div class="condition-item ${c.is_closed ? 'closed' : ''}">
-      <div class="cond-icon">${c.is_closed ? '✅' : '⬜'}</div>
+      <div class="cond-icon" style="color:${c.is_closed ? 'var(--green-600)' : 'var(--gray-400)'};">${c.is_closed ? api.icons.checkCircle : api.icons.emptyCircle}</div>
       <div class="cond-desc">
         <div>${api.fmt.escape(c.description)}</div>
         ${c.is_closed ? `<div class="cond-evidence">↳ ${api.fmt.escape(c.evidence_note ?? '')}</div>
@@ -1034,7 +1034,7 @@ function renderDecisionCard(d) {
     <div class="decision-rationale">${api.fmt.escape(d.rationale)}</div>
     ${d.conditions && d.conditions.length ? `<div class="conditions-list" style="background:none;">
       ${d.conditions.map(c => `<div class="condition-item ${c.is_closed ? 'closed' : ''}">
-        <div class="cond-icon">${c.is_closed ? '✅' : '⬜'}</div>
+        <div class="cond-icon" style="color:${c.is_closed ? 'var(--green-600)' : 'var(--gray-400)'};">${c.is_closed ? api.icons.checkCircle : api.icons.emptyCircle}</div>
         <div class="cond-desc">${api.fmt.escape(c.description)}</div>
       </div>`).join('')}
     </div>` : ''}
@@ -1547,7 +1547,7 @@ async function renderFutureStagePreview(el, stageNum) {
 
   el.innerHTML = `
     <div class="history-banner" style="border-left-color:var(--gray-400);background:var(--gray-50);">
-      <div class="history-banner-icon">🔒</div>
+      <div class="history-banner-icon">${api.icons.lock}</div>
       <div class="history-banner-body">
         <strong>Stage ${stageNum}: ${stageName} (Not yet started)</strong>
         <p>Preview of checklist requirements. Items are read-only until this stage opens.</p>
@@ -1768,7 +1768,7 @@ function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
     const editBtn = canEdit
       ? `<button class="btn btn-ghost btn-sm sdoc-edit-btn"
            data-doc-id="${d.id}"
-           style="padding:3px 8px;font-size:13px;" title="Edit document">✏️</button>`
+           style="padding:3px 8px;" title="Edit document">${api.icons.pencil}</button>`
       : '';
 
     // Delete button: uploader only, non-submitted/approved docs
@@ -1865,7 +1865,7 @@ async function renderHistorySnapshot(el, stageNumber) {
 
   el.innerHTML = `
     <div class="history-banner">
-      <div class="history-banner-icon">📋</div>
+      <div class="history-banner-icon">${api.icons.clipboard}</div>
       <div class="history-banner-body">
         <strong>Historical view | Stage ${stageNumber}: ${stageName}</strong>
         <p>This stage is complete. All data below is read-only.</p>
@@ -1920,7 +1920,7 @@ function renderHistoryDecisionStamp(d, allConditions) {
       </div>
       ${decisionConditions.map(c => `
         <div class="condition-item ${c.is_closed ? 'closed' : ''}" style="margin-bottom:4px;">
-          <div class="cond-icon">${c.is_closed ? '✅' : '⬜'}</div>
+          <div class="cond-icon" style="color:${c.is_closed ? 'var(--green-600)' : 'var(--gray-400)'};">${c.is_closed ? api.icons.checkCircle : api.icons.emptyCircle}</div>
           <div class="cond-desc">
             <div>${api.fmt.escape(c.description)}</div>
             ${c.is_closed ? `

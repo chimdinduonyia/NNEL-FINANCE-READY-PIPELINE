@@ -50,13 +50,13 @@ function renderExpiryBanner(expiresAt) {
   const isWarning  = !isExpired && daysLeft <= 7;
 
   const cls  = isExpired ? 'expired' : (isWarning ? 'warn' : 'safe');
-  const icon = isExpired ? '🔒' : (isWarning ? '⚠️' : '🔓');
+  const icon = isExpired ? api.icons.lock : (isWarning ? api.icons.warning : api.icons.unlock);
   const msg  = isExpired
     ? `Your data room access expired on ${api.fmt.date(expiresAt)}.`
     : `Your data room access expires on ${api.fmt.date(expiresAt)} (${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining).`;
 
   el.className = `expiry-banner ${cls}`;
-  el.innerHTML = `<div class="container">${icon} ${msg}</div>`;
+  el.innerHTML = `<div class="container">${icon}${msg}</div>`;
   el.classList.remove('hidden');
 }
 
@@ -109,8 +109,8 @@ function renderContent(data) {
 function renderDocRow(d) {
   const stageLabel = d.stage_number != null ? `Stage ${d.stage_number}` : '';
   const fileCell   = d.file_ref
-    ? `<a href="${api.fmt.escape(d.file_ref)}" target="_blank" rel="noopener" class="vdr-file-link">
-         📎 ${api.fmt.escape(d.file_ref)}
+    ? `<a href="${api.fmt.escape(d.file_ref)}" target="_blank" rel="noopener" class="vdr-file-link" style="display:inline-flex;align-items:center;gap:6px;">
+         ${api.icons.paperclip}${api.fmt.escape(d.file_ref)}
        </a>`
     : `<span class="text-muted text-sm">No file reference</span>`;
 

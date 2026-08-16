@@ -456,7 +456,7 @@ async function saveEdit(itemId) {
 
     if (result.forked) {
       // Version was bumped — reload to show new version
-      alert(`✅ Saved. A new version (${result.new_version}) has been created to protect existing projects.`);
+      alert(`Saved. A new version (${result.new_version}) has been created to protect existing projects.`);
     }
     await loadTemplate();
   } catch (err) {
@@ -638,7 +638,7 @@ async function setItemStatus(itemId, isActive) {
       { is_active: isActive }
     );
     if (result.forked) {
-      alert(`✅ Done. A new version (${result.new_version}) has been created.`);
+      alert(`Done. A new version (${result.new_version}) has been created.`);
     }
     await loadTemplate();
   } catch (err) {
@@ -686,7 +686,7 @@ async function handleAddItem(e) {
 function renderGateChainSection(stageNum, chain) {
   if (CAPEX_GOVERNED.includes(stageNum)) {
     return `<div class="gate-chain-config">
-      <div class="gate-chain-title">🔒 Gate Approver Chain</div>
+      <div class="gate-chain-title"><span style="vertical-align:middle;margin-right:6px;">${api.icons.lock}</span>Gate Approver Chain</div>
       <p class="text-sm text-muted" style="margin-top:4px;">
         Stage ${stageNum} routing is determined by the project's CAPEX at submission
         (DOA threshold rules) and cannot be configured here.
@@ -712,7 +712,7 @@ function renderGateChainSection(stageNum, chain) {
     .map(a => `<option value="${a.value}">${a.label}</option>`).join('');
 
   return `<div class="gate-chain-config">
-    <div class="gate-chain-title">⛓ Gate Approver Chain
+    <div class="gate-chain-title"><span style="vertical-align:middle;margin-right:6px;">${api.icons.chainLink}</span>Gate Approver Chain
       <span class="text-muted" style="font-size:12px;font-weight:400;margin-left:6px;">
         who signs off at Stage ${stageNum} (in order)
       </span>

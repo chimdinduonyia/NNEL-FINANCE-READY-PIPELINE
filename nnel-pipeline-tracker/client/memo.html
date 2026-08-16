@@ -239,7 +239,13 @@
 <body>
   <div class="print-bar" id="print-bar">
     <p>Fill in the <strong>To</strong>, <strong>Subject</strong>, and <strong>Next Steps</strong> fields before printing.</p>
-    <button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+    <button class="print-btn" onclick="window.print()">
+      <svg width="15" height="15" viewBox="0 0 14 14" fill="none" style="vertical-align:middle;margin-right:6px;">
+        <rect x="3" y="5" width="8" height="4.5" stroke="currentColor" stroke-width="1.3"/>
+        <path d="M4 5V2h6v3" stroke="currentColor" stroke-width="1.3"/>
+        <path d="M4 9.5v2.5h6V9.5" stroke="currentColor" stroke-width="1.3"/>
+      </svg>Print / Save as PDF
+    </button>
   </div>
   <div id="memo-status">Loading memo…</div>
   <div class="memo" id="memo" style="display:none;"></div>

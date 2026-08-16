@@ -180,6 +180,27 @@ const api = {
     }).catch(() => {});
   },
 
+  // Shared icon set — geometric line icons (stroke=currentColor, square
+  // linecaps/miter joins to match the rest of the app) used in place of
+  // emoji everywhere. Each is a bare <svg> string; wrap with inline
+  // style="vertical-align:middle;margin-right:6px;" at the call site same
+  // as any other inline icon in this app.
+  icons: {
+    document:    `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="1" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.4"/><line x1="4.5" y1="5" x2="9.5" y2="5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`,
+    pencil:      `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9.5 2.5 11.5 4.5 4.5 11.5H2.5V9.5L9.5 2.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><line x1="8" y1="4" x2="10" y2="6" stroke="currentColor" stroke-width="1.3"/></svg>`,
+    trash:       `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 4h9M5.5 4V2.5h3V4M3.5 4l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="square" stroke-linejoin="round"/><line x1="5.7" y1="6" x2="5.9" y2="10" stroke="currentColor" stroke-width="1.1"/><line x1="8.3" y1="6" x2="8.1" y2="10" stroke="currentColor" stroke-width="1.1"/></svg>`,
+    lock:        `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2.5" y="6.5" width="9" height="6" rx="1" stroke="currentColor" stroke-width="1.4"/><path d="M4.3 6.5V4.7a2.7 2.7 0 0 1 5.4 0V6.5" stroke="currentColor" stroke-width="1.4"/></svg>`,
+    unlock:      `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2.5" y="6.5" width="9" height="6" rx="1" stroke="currentColor" stroke-width="1.4"/><path d="M4.3 6.5V4.7a2.7 2.7 0 0 1 5.2-1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`,
+    warning:     `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.8 12.8 12H1.2L7 1.8Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><line x1="7" y1="5.5" x2="7" y2="8.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="10.2" r="0.7" fill="currentColor"/></svg>`,
+    printer:     `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><rect x="3" y="5" width="8" height="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M4 5V2h6v3" stroke="currentColor" stroke-width="1.3"/><path d="M4 9.5v2.5h6V9.5" stroke="currentColor" stroke-width="1.3"/></svg>`,
+    paperclip:   `<svg width="13" height="14" viewBox="0 0 12 14" fill="none"><path d="M9 4v5.2a3 3 0 1 1-6 0V3a2 2 0 1 1 4 0v6a1 1 0 1 1-2 0V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    checkCircle: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4"/><polyline points="5,8.2 7,10.2 11,6" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>`,
+    emptyCircle: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4"/></svg>`,
+    clipboard:   `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2.5" y="2" width="9" height="11" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="5" y="1" width="4" height="2" rx="0.5" stroke="currentColor" stroke-width="1.2"/><line x1="4.5" y1="6" x2="9.5" y2="6" stroke="currentColor" stroke-width="1.2"/><line x1="4.5" y1="8.5" x2="9.5" y2="8.5" stroke="currentColor" stroke-width="1.2"/></svg>`,
+    chainLink:   `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="4.5" width="6" height="5" rx="2.5" stroke="currentColor" stroke-width="1.3"/><rect x="6.5" y="4.5" width="6" height="5" rx="2.5" stroke="currentColor" stroke-width="1.3"/></svg>`,
+    clock:       `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.4"/><polyline points="7,3.5 7,7 9.5,8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`,
+  },
+
   // Helpers
   fmt: {
     currency(val, curr = 'USD') {

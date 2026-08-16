@@ -880,7 +880,8 @@ textarea { resize: vertical; min-height: 80px; }
   padding: 14px 18px;
   margin-bottom: 24px;
 }
-.history-banner-icon { font-size: 22px; flex-shrink: 0; }
+.history-banner-icon { flex-shrink: 0; color: var(--gray-500); }
+.history-banner-icon svg { width: 24px; height: 24px; }
 .history-banner-body { flex: 1; }
 .history-banner-body strong { font-size: 15px; font-weight: 700; color: var(--gray-900); }
 .history-banner-body p  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
