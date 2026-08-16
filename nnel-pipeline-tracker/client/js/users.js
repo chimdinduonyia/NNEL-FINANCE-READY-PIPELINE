@@ -1,8 +1,9 @@
 /* users.js — User Management page (admin only) */
 'use strict';
 
-let currentUser = null;
-let allUsers    = [];
+let currentUser  = null;
+let allUsers     = [];
+let showDeleted  = false; // deleted (deactivated) accounts are hidden by default
 
 document.addEventListener('DOMContentLoaded', async () => {
   currentUser = await api.getMe();
@@ -27,6 +28,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     toggle.textContent = show ? 'Hide' : 'Show';
   });
 
+  document.getElementById('show-deleted-toggle').addEventListener('change', (e) => {
+    showDeleted = e.target.checked;
+    renderTable();
+  });
+
   setupUserModal();
   setupPasswordModal();
   await loadUsers();
@@ -47,14 +53,19 @@ async function loadUsers() {
 }
 
 function renderTable() {
-  const card = document.getElementById('users-card');
+  const card  = document.getElementById('users-card');
+  const users = showDeleted ? allUsers : allUsers.filter(u => u.is_active);
 
   if (allUsers.length === 0) {
     card.innerHTML = '<div class="card-body"><div class="empty">No users yet.</div></div>';
     return;
   }
+  if (users.length === 0) {
+    card.innerHTML = '<div class="card-body"><div class="empty">No active users. Check "Show deleted users" above to see deleted accounts.</div></div>';
+    return;
+  }
 
-  const rows = allUsers.map(u => {
+  const rows = users.map(u => {
     const roleBadge = u.system_role === 'admin'
       ? '<span class="badge badge-green">Admin</span>'
       : u.system_role === 'project_manager'
@@ -160,7 +171,7 @@ function showDeleteUserModal(userId, name) {
   modal.id = 'delete-user-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;';
   modal.innerHTML = `
-    <div class="card" style="width:100%;max-width:440px;">
+    <div class="card" style="width:100%;max-width:440px;overflow:hidden;">
       <div class="card-header" style="border-left:4px solid var(--red-700);">
         <h3 style="color:var(--red-700);">Delete User</h3>
         <button class="btn btn-ghost btn-sm" id="dum-close">✕</button>

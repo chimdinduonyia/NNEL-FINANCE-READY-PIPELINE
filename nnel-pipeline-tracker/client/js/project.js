@@ -1458,7 +1458,7 @@ function showDeleteProjectModal() {
   modal.id = 'delete-project-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;';
   modal.innerHTML = `
-    <div class="card" style="width:100%;max-width:440px;">
+    <div class="card" style="width:100%;max-width:440px;overflow:hidden;">
       <div class="card-header" style="border-left:4px solid var(--red-700);">
         <h3 style="color:var(--red-700);">Delete Project</h3>
         <button class="btn btn-ghost btn-sm" id="dpm-close">✕</button>

@@ -168,8 +168,9 @@ async function handleRequest(req, res) {
   }
 
   // ---- Projects -----------------------------------------------------------
-  if (method === 'POST' && path === '/api/projects')     return projectRoutes.create(req, res);
-  if (method === 'GET'  && path === '/api/projects')     return projectRoutes.list(req, res);
+  if (method === 'POST' && path === '/api/projects')        return projectRoutes.create(req, res);
+  if (method === 'GET'  && path === '/api/projects')        return projectRoutes.list(req, res);
+  if (method === 'GET'  && path === '/api/projects/recent') return projectRoutes.getRecent(req, res);
 
   if (params = match('/api/projects/:id', path)) {
     if (method === 'GET')    return projectRoutes.getOne(req, res, params);

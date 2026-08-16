@@ -123,6 +123,11 @@ const api = {
         <span class="sidebar-brand-text">Finance-Ready Pipeline</span>
       </a>
       <nav class="sidebar-nav">${navHtml}</nav>
+      <div class="sidebar-recents" id="sidebar-recents">
+        <hr class="sidebar-divider">
+        <div class="sidebar-recents-heading">Recents</div>
+        <div id="sidebar-recents-list"></div>
+      </div>
       <div class="sidebar-toggle-row">
         <button type="button" class="sidebar-toggle" id="sidebar-toggle-btn">
           ${iconCollapse}<span class="sidebar-toggle-label">Collapse</span>
@@ -177,6 +182,41 @@ const api = {
         badge.textContent = count > 99 ? '99+' : String(count);
         badge.classList.remove('hidden');
       }
+    }).catch(() => {});
+
+    // Recents — projects this user has actually been active on lately.
+    // Best-effort, same as the badge above.
+    this.get('/api/projects/recent').then(items => {
+      const list = document.getElementById('sidebar-recents-list');
+      if (!list) return;
+
+      if (!items.length) {
+        list.innerHTML = `<div class="sidebar-recents-empty">No recent activity</div>`;
+        return;
+      }
+
+      list.innerHTML = items.map(p => `
+        <a href="/project.html?id=${p.id}" class="sidebar-recent-link">
+          <span class="sidebar-recent-name">${this.fmt.escape(p.name.toUpperCase())}</span>
+        </a>`).join('');
+
+      // Marquee-on-hover, but only for names that actually overflow their
+      // width — measured directly rather than guessed, so short names never
+      // twitch and long ones scroll exactly far enough to reveal the end.
+      list.querySelectorAll('.sidebar-recent-link').forEach(link => {
+        const nameEl = link.querySelector('.sidebar-recent-name');
+        link.addEventListener('mouseenter', () => {
+          const overflow = nameEl.scrollWidth - nameEl.clientWidth;
+          if (overflow > 2) {
+            nameEl.style.transition = `transform ${Math.max(1.2, overflow / 40)}s linear`;
+            nameEl.style.transform = `translateX(-${overflow}px)`;
+          }
+        });
+        link.addEventListener('mouseleave', () => {
+          nameEl.style.transition = 'transform 0.25s ease';
+          nameEl.style.transform = 'translateX(0)';
+        });
+      });
     }).catch(() => {});
   },
 

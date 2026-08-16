@@ -204,7 +204,7 @@ input, textarea, select { font-family: inherit; }
 .sidebar-brand-text { font-size: 13.5px; font-weight: 800; line-height: 1.25; color: var(--gray-900); white-space: nowrap; overflow: hidden; }
 .sidebar.collapsed .sidebar-brand-text { display: none; }
 
-.sidebar-nav { flex: 1; padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
+.sidebar-nav { padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
 .sidebar-link {
   display: flex;
   align-items: center;
@@ -222,6 +222,47 @@ input, textarea, select { font-family: inherit; }
 .sidebar-link svg { flex-shrink: 0; }
 .sidebar.collapsed .sidebar-link { justify-content: center; padding: 10px; }
 .sidebar.collapsed .sidebar-link-label { display: none; }
+
+/* Recents — sits right under the nav, absorbs the sidebar's leftover
+   height so the toggle + account snippet still end up pinned to the
+   bottom (this is the flex:1 that used to live on .sidebar-nav). */
+.sidebar-recents {
+  flex: 1;
+  min-height: 0;
+  padding: 0 10px 12px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.sidebar-divider { border: none; border-top: 1px solid var(--border); margin: 4px 14px 12px 4px; }
+.sidebar-recents-heading {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0 8px 8px;
+  flex-shrink: 0;
+}
+.sidebar-recents-empty { font-size: 12.5px; color: var(--text-muted); padding: 4px 8px; }
+.sidebar-recent-link {
+  display: block;
+  padding: 7px 8px;
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.sidebar-recent-link:hover { background: var(--gray-100); text-decoration: none; }
+.sidebar-recent-name {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gray-700);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-recent-link:hover .sidebar-recent-name { color: var(--gray-900); text-overflow: clip; }
+.sidebar.collapsed .sidebar-recents { display: none; }
 
 .sidebar-toggle-row { padding: 6px 10px 10px; flex-shrink: 0; }
 .sidebar-toggle {

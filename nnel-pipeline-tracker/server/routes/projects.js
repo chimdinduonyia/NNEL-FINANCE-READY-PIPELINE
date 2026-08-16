@@ -184,6 +184,39 @@ async function list(req, res) {
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/projects/recent
+// Powers the sidebar's "Recents" list — the projects this user has actually
+// done something on lately, derived from audit_log (any action counts here,
+// unlike the curated set notifications uses — any activity at all is a fair
+// signal for "recently active on"). Restricted to projects still active and
+// still visible to this user (admin/PM see everything; everyone else only
+// what they're currently a member of) so a stale entry never links
+// somewhere they'd get a 403.
+// ---------------------------------------------------------------------------
+async function getRecent(req, res) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+
+  const canSeeAll = ['admin', 'project_manager'].includes(user.system_role);
+
+  const [rows] = await pool.execute(
+    `SELECT p.id, p.name, MAX(al.created_at) AS last_active
+     FROM audit_log al
+     JOIN projects p ON p.id = al.project_id AND p.status != 'cancelled'
+     WHERE al.user_id = ?
+       AND (? = 1 OR EXISTS (
+         SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = ?
+       ))
+     GROUP BY p.id, p.name
+     ORDER BY last_active DESC
+     LIMIT 5`,
+    [user.id, canSeeAll ? 1 : 0, user.id]
+  );
+
+  sendJSON(res, 200, rows);
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/projects/:id
 // Returns full project detail: basic info, members, and all 6 stage states.
 // ---------------------------------------------------------------------------
@@ -579,4 +612,4 @@ async function updateMember(req, res, params) {
   }
 }
 
-module.exports = { create, list, getOne, update, addMember, removeMember, deleteProject, updateMember };
+module.exports = { create, list, getRecent, getOne, update, addMember, removeMember, deleteProject, updateMember };
