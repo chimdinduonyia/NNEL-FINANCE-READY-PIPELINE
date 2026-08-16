@@ -91,7 +91,8 @@ const api = {
     const iconTemplates = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><rect x="2" y="1" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.4"/><line x1="4.5" y1="5" x2="9.5" y2="5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><line x1="4.5" y1="11" x2="7.5" y2="11" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`;
     const iconUsers     = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="4.5" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13C1.5 10 4 8 7 8s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`;
     const iconSignOut   = `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><polyline points="9.5,4.5 12.5,7 9.5,9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/><line x1="12.5" y1="7" x2="5" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/><polyline points="5,2 2,2 2,12 5,12" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
-    const iconCollapse  = `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="1.5" width="11" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><line x1="5.5" y1="1.5" x2="5.5" y2="12.5" stroke="currentColor" stroke-width="1.4"/></svg>`;
+    const iconChevronsLeft  = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="8.5,2.5 3.5,7 8.5,11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/><polyline points="12,2.5 7,7 12,11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
+    const iconChevronsRight = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="5.5,2.5 10.5,7 5.5,11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/><polyline points="2,2.5 7,7 2,11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
 
     const path = window.location.pathname;
     const navItems = [
@@ -130,7 +131,7 @@ const api = {
       </div>
       <div class="sidebar-toggle-row">
         <button type="button" class="sidebar-toggle" id="sidebar-toggle-btn">
-          ${iconCollapse}<span class="sidebar-toggle-label">Collapse</span>
+          <span id="sidebar-toggle-icon">${iconChevronsLeft}</span><span class="sidebar-toggle-label">Collapse</span>
         </button>
       </div>
       <div class="sidebar-account">
@@ -152,10 +153,12 @@ const api = {
         </div>
       </div>`;
 
-    const toggleBtn = document.getElementById('sidebar-toggle-btn');
+    const toggleBtn  = document.getElementById('sidebar-toggle-btn');
+    const toggleIcon = document.getElementById('sidebar-toggle-icon');
     const applyCollapsed = () => {
       sidebar.classList.toggle('collapsed', collapsed);
       toggleBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      toggleIcon.innerHTML = collapsed ? iconChevronsRight : iconChevronsLeft;
     };
     applyCollapsed();
 
