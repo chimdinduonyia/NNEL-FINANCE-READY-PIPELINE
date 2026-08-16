@@ -201,16 +201,26 @@ async function signup(req, res) {
  * Returns the currently authenticated user's profile.
  * Used by the frontend to verify a token is still valid and to
  * know the user's role before rendering the UI.
+ *
+ * is_gate_approver: true if this user holds the gate_approver role on any
+ * project (a project-level role, not a system_role) -- the frontend uses
+ * this to decide whether to show the "Approval Requests" sidebar link.
  */
 async function me(req, res) {
   const user = await requireLogin(req, res);
   if (!user) return; // requireLogin already sent 401
+
+  const [[approverRow]] = await pool.execute(
+    `SELECT 1 FROM project_members WHERE user_id = ? AND role = 'gate_approver' LIMIT 1`,
+    [user.id]
+  );
 
   sendJSON(res, 200, {
     id: user.id,
     email: user.email,
     full_name: user.full_name,
     system_role: user.system_role,
+    is_gate_approver: !!approverRow,
   });
 }
 

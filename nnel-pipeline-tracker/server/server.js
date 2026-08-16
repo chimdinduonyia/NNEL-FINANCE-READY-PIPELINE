@@ -25,6 +25,7 @@ const dataroomRoutes  = require('./routes/dataroom');
 const raciRoutes      = require('./routes/raci');
 const memoRoutes      = require('./routes/memo');
 const userRoutes      = require('./routes/users');
+const notificationRoutes = require('./routes/notifications');
 const { sendJSON, sendError } = require('./utils/response');
 
 const PORT       = Number(process.env.PORT) || 3000;
@@ -107,6 +108,11 @@ async function handleRequest(req, res) {
   if (method === 'GET' && path === '/api/portfolio/kpis')     return portfolioRoutes.getKPIs(req, res);
   if (method === 'GET' && path === '/api/decisions/pending')  return portfolioRoutes.getPendingDecisions(req, res);
   if (method === 'GET' && path === '/api/decisions/rejected') return portfolioRoutes.getRejectedDecisions(req, res);
+
+  // ---- Notifications --------------------------------------------------------
+  if (method === 'GET'  && path === '/api/notifications')              return notificationRoutes.list(req, res);
+  if (method === 'GET'  && path === '/api/notifications/unread-count') return notificationRoutes.unreadCount(req, res);
+  if (method === 'POST' && path === '/api/notifications/mark-seen')    return notificationRoutes.markSeen(req, res);
 
   // ---- User management (admin only) ---------------------------------------
   if (method === 'GET'  && path === '/api/users') return userRoutes.list(req, res);

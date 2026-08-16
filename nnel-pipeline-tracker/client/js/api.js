@@ -86,6 +86,8 @@ const api = {
     const roleLabel = ROLE_LABELS[user.system_role] || 'User';
 
     const iconDashboard = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="5.5" height="5.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1.5" width="5.5" height="5.5" stroke="currentColor" stroke-width="1.4"/><rect x="1.5" y="9" width="5.5" height="5.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5.5" height="5.5" stroke="currentColor" stroke-width="1.4"/></svg>`;
+    const iconBell      = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><path d="M7 1.5C5 1.5 4 3 4 5v2L2.5 9.5h9L10 7V5c0-2-1-3.5-3-3.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5.5 11.3a1.5 1.5 0 0 0 3 0" stroke="currentColor" stroke-width="1.4"/></svg>`;
+    const iconApproval  = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><rect x="2" y="1" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.4"/><polyline points="4.5,7 6,8.5 9.5,4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
     const iconTemplates = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><rect x="2" y="1" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.4"/><line x1="4.5" y1="5" x2="9.5" y2="5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><line x1="4.5" y1="11" x2="7.5" y2="11" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`;
     const iconUsers     = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="4.5" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13C1.5 10 4 8 7 8s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`;
     const iconSignOut   = `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><polyline points="9.5,4.5 12.5,7 9.5,9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/><line x1="12.5" y1="7" x2="5" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/><polyline points="5,2 2,2 2,12 5,12" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
@@ -94,16 +96,21 @@ const api = {
     const path = window.location.pathname;
     const navItems = [
       { href: '/', label: 'Dashboard', icon: iconDashboard,
-        match: p => p === '/' || p === '/index.html', roles: ['admin','project_manager','user'] },
+        match: p => p === '/' || p === '/index.html', visible: true },
+      { href: '/notifications.html', label: 'Notifications', icon: iconBell,
+        match: p => p === '/notifications.html', visible: true, badgeId: 'sidebar-notif-badge' },
+      { href: '/approvals.html', label: 'Approval Requests', icon: iconApproval,
+        match: p => p === '/approvals.html', visible: user.is_gate_approver === true },
       { href: '/templates.html', label: 'Templates', icon: iconTemplates,
-        match: p => p === '/templates.html', roles: ['admin','project_manager'] },
+        match: p => p === '/templates.html', visible: ['admin','project_manager'].includes(user.system_role) },
       { href: '/users.html', label: 'Users', icon: iconUsers,
-        match: p => p === '/users.html', roles: ['admin'] },
-    ].filter(i => i.roles.includes(user.system_role));
+        match: p => p === '/users.html', visible: user.system_role === 'admin' },
+    ].filter(i => i.visible);
 
     const navHtml = navItems.map(i => `
       <a href="${i.href}" class="sidebar-link ${i.match(path) ? 'active' : ''}" title="${i.label}">
         ${i.icon}<span class="sidebar-link-label">${i.label}</span>
+        ${i.badgeId ? `<span class="sidebar-link-badge hidden" id="${i.badgeId}"></span>` : ''}
       </a>`).join('');
 
     const STORAGE_KEY = 'nnel_sidebar_collapsed';
@@ -162,6 +169,15 @@ const api = {
     document.addEventListener('click', () => accountDropdown.classList.remove('open'));
 
     document.getElementById('logout-btn').addEventListener('click', () => this.logout());
+
+    // Unread notifications badge — best-effort, never blocks sidebar rendering
+    this.get('/api/notifications/unread-count').then(({ count }) => {
+      const badge = document.getElementById('sidebar-notif-badge');
+      if (badge && count > 0) {
+        badge.textContent = count > 99 ? '99+' : String(count);
+        badge.classList.remove('hidden');
+      }
+    }).catch(() => {});
   },
 
   // Helpers

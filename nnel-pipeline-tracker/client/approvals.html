@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Approval Requests | NNEL Pipeline Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="app-content">
+
+  <main class="container page-main">
+    <div>
+      <h1 style="font-size:24px;font-weight:800;">Approval Requests</h1>
+      <p class="text-muted text-sm mt-4">Stage gates submitted for your review, across every project you're a gate approver on.</p>
+    </div>
+
+    <div id="approvals-list"><div class="loading">Loading approval requests…</div></div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/approvals.js"></script>
+
+    </div>
+  </div>
+</body>
+</html>
