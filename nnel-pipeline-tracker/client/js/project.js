@@ -1548,7 +1548,7 @@ async function renderFutureStagePreview(el, stageNum) {
     </div>`).join('');
 
   el.innerHTML = `
-    <div class="history-banner" style="border-left:none;background:var(--gray-50);">
+    <div class="history-banner" style="border-left:1px solid var(--border);background:var(--gray-50);">
       <div class="history-banner-icon">${api.icons.lock}</div>
       <div class="history-banner-body">
         <strong>Stage ${stageNum}: ${stageName} (Not yet started)</strong>
