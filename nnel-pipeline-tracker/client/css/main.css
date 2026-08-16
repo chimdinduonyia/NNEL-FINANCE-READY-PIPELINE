@@ -736,6 +736,24 @@ textarea { resize: vertical; min-height: 80px; }
 .project-meta { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
 .project-capex { font-size: 14px; color: var(--text-muted); font-weight: 600; }
 
+/* Project actions (⋮) menu */
+.project-actions-menu { position: relative; }
+.project-actions-btn { font-size: 18px; font-weight: 800; line-height: 1; padding: 6px 12px; }
+.project-actions-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  z-index: 60;
+}
+.project-actions-dropdown.open { display: block; }
+
 /* Project brief — quick fact strip shown above the stepper */
 .project-brief {
   background: var(--bg-subtle);
@@ -776,7 +794,7 @@ textarea { resize: vertical; min-height: 80px; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   position: relative;
   padding: 0 4px;
 }
@@ -787,7 +805,7 @@ textarea { resize: vertical; min-height: 80px; }
 .stage-node::after {
   content: '';
   position: absolute;
-  top: 15px;
+  top: 19px;
   height: 2px;
   width: 50%;
   background: var(--gray-200);
@@ -799,34 +817,50 @@ textarea { resize: vertical; min-height: 80px; }
 .stage-node:last-child::after   { display: none; }
 .stage-node.line-complete::after { background: var(--green-500); }
 .stage-node.line-complete + .stage-node::before { background: var(--green-500); }
+
 .stage-dot {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   border: 2px solid var(--gray-200);
   background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  color: var(--text-muted);
+  color: var(--gray-400);
   position: relative;
   z-index: 1;
   transition: box-shadow 0.15s, filter 0.15s;
 }
-.stage-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-align: center; line-height: 1.3; }
-.stage-node.status-in_progress .stage-dot   { border-color: var(--blue-600); background: var(--blue-100); color: var(--blue-600); }
-.stage-node.status-submitted   .stage-dot   { border-color: var(--amber-600); background: var(--amber-100); color: var(--amber-600); }
-.stage-node.status-approved    .stage-dot   { border-color: var(--green-600); background: var(--green-600); color: #fff; }
-.stage-node.status-conditional .stage-dot   { border-color: var(--orange-600); background: var(--orange-100); color: var(--orange-600); }
-.stage-node.status-rejected    .stage-dot   { border-color: var(--red-700); background: var(--red-100); color: var(--red-700); }
-.stage-node.status-in_progress .stage-label,
-.stage-node.status-submitted   .stage-label { color: var(--gray-700); font-weight: 700; }
-.stage-node.status-approved    .stage-label { color: var(--green-700); font-weight: 700; }
-.stage-node.status-conditional .stage-label { color: var(--orange-600); font-weight: 700; }
+.stage-label-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.stage-label  { font-size: 12.5px; font-weight: 700; color: var(--gray-700); text-align: center; line-height: 1.3; }
+.stage-status { font-size: 10.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
 
-/* Approved stage — clickable, shows selection ring */
+/* Every non-pending status gets a solid fill + white glyph — only
+   not_started (padlocked, below) stays a hollow outline circle. */
+.stage-node.status-in_progress .stage-dot   { border-color: var(--blue-600);   background: var(--blue-600);   color: #fff; }
+.stage-node.status-submitted   .stage-dot   { border-color: var(--amber-600);  background: var(--amber-600);  color: #fff; }
+.stage-node.status-approved    .stage-dot   { border-color: var(--green-600); background: var(--green-600); color: #fff; }
+.stage-node.status-conditional .stage-dot   { border-color: var(--orange-600); background: var(--orange-600); color: #fff; }
+.stage-node.status-rejected    .stage-dot   { border-color: var(--red-700);   background: var(--red-700);   color: #fff; }
+
+.stage-node.status-in_progress .stage-label,
+.stage-node.status-in_progress .stage-status { color: var(--blue-600); }
+.stage-node.status-submitted   .stage-label,
+.stage-node.status-submitted   .stage-status { color: var(--amber-600); }
+.stage-node.status-approved    .stage-label,
+.stage-node.status-approved    .stage-status { color: var(--green-700); }
+.stage-node.status-conditional .stage-label,
+.stage-node.status-conditional .stage-status { color: var(--orange-600); }
+.stage-node.status-rejected    .stage-label,
+.stage-node.status-rejected    .stage-status { color: var(--red-700); }
+.stage-node.status-not_started .stage-label,
+.stage-node.status-not_started .stage-status { color: var(--gray-400); }
+
+/* Clickable stages show a hand cursor + a selection ring on the one
+   currently being viewed */
 .stage-node.clickable { cursor: pointer; }
 .stage-node.clickable:hover .stage-dot { filter: brightness(0.92); }
 .stage-node.selected .stage-dot {
@@ -862,21 +896,32 @@ textarea { resize: vertical; min-height: 80px; }
   overflow-y: hidden;
 }
 .section-tab {
+  position: relative;
   padding: 14px 20px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-muted);
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
   cursor: pointer;
   white-space: nowrap;
   font-family: inherit;
   transition: color 0.15s;
 }
+.section-tab::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -2px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: transparent;
+  transition: background 0.15s;
+}
 .section-tab:hover  { color: var(--gray-700); }
-.section-tab.active { color: var(--green-700); border-bottom-color: var(--green-700); }
+.section-tab.active { color: var(--green-700); font-weight: 700; }
+.section-tab.active::after { background: var(--green-600); }
 
 .section-content { padding-top: 24px; padding-bottom: 48px; }
 

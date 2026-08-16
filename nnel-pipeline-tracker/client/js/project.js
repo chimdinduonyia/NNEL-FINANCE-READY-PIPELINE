@@ -41,6 +41,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   api.initSidebar(currentUser);
 
+  // Project actions (⋮) menu — attached once here, not inside renderHeader
+  // (which reruns on every reload), so it never stacks up duplicate listeners.
+  document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('project-actions-dropdown');
+    if (dropdown?.classList.contains('open') && !e.target.closest('.project-actions-menu')) {
+      dropdown.classList.remove('open');
+    }
+  });
+
   const params = new URLSearchParams(window.location.search);
   projectId = params.get('id');
   if (!projectId) { window.location.href = '/'; return; }
@@ -118,28 +127,42 @@ function renderHeader() {
 
   const actionsEl = document.getElementById('project-actions');
   if (actionsEl) {
-    const memoBtn = (isAdmin() || isProjectLead())
-      ? `<a href="/memo.html?id=${projectId}" target="_blank" class="btn btn-ghost btn-sm">📄 Export Memo</a>` : '';
-    const editBtn = canManageTeam()
-      ? `<button class="btn btn-ghost btn-sm" id="edit-project-btn">✏️ Edit Details</button>` : '';
-    const deleteBtn = isAdmin()
-      ? `<button class="btn btn-ghost btn-sm" id="delete-project-btn" style="color:var(--red-700);">🗑 Delete</button>` : '';
-    actionsEl.style.display = 'flex';
-    actionsEl.style.gap = '8px';
-    actionsEl.style.alignItems = 'center';
-    actionsEl.innerHTML = [memoBtn, editBtn, deleteBtn].filter(Boolean).join('');
+    const memoItem = (isAdmin() || isProjectLead())
+      ? `<a href="/memo.html?id=${projectId}" target="_blank" class="dd-item">📄 Export Memo</a>` : '';
+    const editItem = canManageTeam()
+      ? `<button class="dd-item" id="edit-project-btn">✏️ Edit Details</button>` : '';
+    const deleteItem = isAdmin()
+      ? `<button class="dd-item dd-danger" id="delete-project-btn">🗑 Delete Project</button>` : '';
+    const items = [memoItem, editItem, deleteItem].filter(Boolean);
+
+    actionsEl.innerHTML = items.length ? `
+      <div class="project-actions-menu">
+        <button type="button" class="btn btn-ghost btn-sm project-actions-btn" id="project-actions-btn" title="Project actions">⋮</button>
+        <div class="project-actions-dropdown" id="project-actions-dropdown">${items.join('')}</div>
+      </div>` : '';
+
+    document.getElementById('project-actions-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('project-actions-dropdown')?.classList.toggle('open');
+    });
   }
 
   // Wire up Edit Details button
   const editProjectBtn = document.getElementById('edit-project-btn');
   if (editProjectBtn) {
-    editProjectBtn.addEventListener('click', () => showEditProjectPanel());
+    editProjectBtn.addEventListener('click', () => {
+      document.getElementById('project-actions-dropdown')?.classList.remove('open');
+      showEditProjectPanel();
+    });
   }
 
   // Wire up Delete button
   const deleteProjectBtn = document.getElementById('delete-project-btn');
   if (deleteProjectBtn) {
-    deleteProjectBtn.addEventListener('click', () => showDeleteProjectModal());
+    deleteProjectBtn.addEventListener('click', () => {
+      document.getElementById('project-actions-dropdown')?.classList.remove('open');
+      showDeleteProjectModal();
+    });
   }
 
   el.style.display = 'block';
@@ -165,18 +188,21 @@ function renderPipelineStrip() {
         s.status === 'approved' ? 'line-complete' : '', // greens the connector leading to the next stage
       ].filter(Boolean).join(' ');
 
-      const dot   = stageIcon(s.status);
+      const dot   = stageIcon(s.status, s.stage_number);
       const title = s.status === 'approved'
         ? `View Stage ${s.stage_number} history`
         : s.status === 'not_started'
-          ? `Preview Stage ${s.stage_number} requirements`
+          ? `Locked — preview Stage ${s.stage_number} requirements`
           : s.stage_number === project.current_stage
             ? 'Current stage'
             : '';
 
       return `<div class="${cls}" data-stage="${s.stage_number}" title="${title}">
         <div class="stage-dot">${dot}</div>
-        <div class="stage-label">Stage ${s.stage_number}<br>${abbrev(STAGE_NAMES[s.stage_number])}</div>
+        <div class="stage-label-wrap">
+          <div class="stage-label">${abbrev(STAGE_NAMES[s.stage_number])}</div>
+          <div class="stage-status">${stageStatusText(s.status)}</div>
+        </div>
       </div>`;
     }).join('');
 
@@ -230,16 +256,39 @@ function switchToWorkingView() {
   loadTab(activeTab);
 }
 
-function stageIcon(status) {
-  // Geometric tick: two straight segments, square line-caps, miter join
-  const tick = `<svg width="13" height="11" viewBox="0 0 13 11" fill="none"
-    xmlns="http://www.w3.org/2000/svg">
+// dot content: tick for approved, cross for rejected, a padlock for
+// not_started (locked — nothing to work on yet), and the stage number
+// itself for anything currently active (in_progress/submitted/conditional).
+function stageIcon(status, stageNumber) {
+  const tick = `<svg width="14" height="12" viewBox="0 0 13 11" fill="none" xmlns="http://www.w3.org/2000/svg">
     <polyline points="1.5,5.5 4.5,9 11.5,1.5"
       stroke="currentColor" stroke-width="2.2"
       stroke-linecap="square" stroke-linejoin="miter"/>
   </svg>`;
-  return { approved: tick, rejected:'✕', submitted:'…', conditional:'!',
-           in_progress:'●', not_started:'' }[status] ?? '';
+  const cross = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/>
+    <line x1="10.5" y1="1.5" x2="1.5" y2="10.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/>
+  </svg>`;
+  const lock = `<svg width="13" height="14" viewBox="0 0 13 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="2" y="6" width="9" height="6.5" rx="1" stroke="currentColor" stroke-width="1.5"/>
+    <path d="M3.8 6V4.2a2.7 2.7 0 0 1 5.4 0V6" stroke="currentColor" stroke-width="1.5" fill="none"/>
+  </svg>`;
+
+  if (status === 'approved')    return tick;
+  if (status === 'rejected')    return cross;
+  if (status === 'not_started') return lock;
+  return String(stageNumber);
+}
+
+function stageStatusText(status) {
+  return {
+    not_started: 'Pending',
+    in_progress: 'In Progress',
+    submitted:   'Submitted',
+    approved:    'Completed',
+    conditional: 'Conditional GO',
+    rejected:    'NO-GO',
+  }[status] ?? status;
 }
 
 function abbrev(name) {
