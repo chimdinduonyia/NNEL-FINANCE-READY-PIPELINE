@@ -766,7 +766,9 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
     const close = (result) => { modal.remove(); resolve(result); };
     modal.querySelector('#ev-close').addEventListener('click', () => close({ cancelled: true }));
     modal.querySelector('#ev-cancel').addEventListener('click', () => close({ cancelled: true }));
-    modal.addEventListener('click', e => { if (e.target === modal) close({ cancelled: true }); });
+    // Deliberately no click-outside-closes-modal: dragging to select text in
+    // the evidence-note textarea and releasing past the modal's edge used to
+    // register as "clicked outside" and silently discard what was typed.
 
     modal.querySelector('#ev-save').addEventListener('click', () => {
       const errEl = modal.querySelector('#ev-error');
@@ -1398,7 +1400,7 @@ function showEditProjectPanel() {
   const close = () => panel.remove();
   panel.querySelector('#epp-close').addEventListener('click', close);
   panel.querySelector('#epp-cancel').addEventListener('click', close);
-  panel.addEventListener('click', e => { if (e.target === panel) close(); });
+  // Deliberately no click-outside-closes-panel — see showEvidenceModal for why.
 
   const eppCurrencySel = panel.querySelector('#epp-capex-currency');
   eppCurrencySel.addEventListener('change', () => {
@@ -1485,7 +1487,7 @@ function showDeleteProjectModal() {
 
   modal.querySelector('#dpm-close').addEventListener('click', close);
   modal.querySelector('#dpm-cancel').addEventListener('click', close);
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  // Deliberately no click-outside-closes-modal — see showEvidenceModal for why.
 
   // Enable delete button only when user has typed exactly "DELETE"
   confirmInput.addEventListener('input', () => {
@@ -1656,7 +1658,7 @@ async function openDocEditModal(doc, stageNum) {
   const close = () => modal.remove();
   modal.querySelector('#ded-close').addEventListener('click', close);
   modal.querySelector('#ded-cancel').addEventListener('click', close);
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  // Deliberately no click-outside-closes-modal — see showEvidenceModal for why.
 
   modal.querySelector('#ded-save').addEventListener('click', async () => {
     const errEl   = modal.querySelector('#ded-error');
@@ -2394,7 +2396,7 @@ function openAddMembersModal(activeUsers) {
   const close = () => modal.remove();
   modal.querySelector('#amm-close').addEventListener('click', close);
   modal.querySelector('#amm-cancel').addEventListener('click', close);
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  // Deliberately no click-outside-closes-modal — see showEvidenceModal for why.
 
   const countEl  = modal.querySelector('#amm-selected-count');
   const confirmBtn = modal.querySelector('#amm-confirm');

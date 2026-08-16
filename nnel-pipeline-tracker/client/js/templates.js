@@ -503,7 +503,9 @@ function openDeleteVersionModal(versionId, versionName) {
 
   modal.querySelector('#dv-close').addEventListener('click', close);
   modal.querySelector('#dv-cancel').addEventListener('click', close);
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  // Deliberately no click-outside-closes-modal: dragging to select text in
+  // a textarea and releasing past the modal's edge used to register as
+  // "clicked outside" and silently discard the form.
 
   confirmInput.addEventListener('input', () => {
     deleteBtn.disabled = confirmInput.value !== 'DELETE';
@@ -573,7 +575,9 @@ function openCreateVersionModal() {
   const close = () => modal.remove();
   modal.querySelector('#cv-close').addEventListener('click', close);
   modal.querySelector('#cv-cancel').addEventListener('click', close);
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  // Deliberately no click-outside-closes-modal: dragging to select text in
+  // a textarea and releasing past the modal's edge used to register as
+  // "clicked outside" and silently discard the form.
 
   modal.querySelector('#cv-submit').addEventListener('click', async () => {
     const name      = document.getElementById('cv-name').value.trim();

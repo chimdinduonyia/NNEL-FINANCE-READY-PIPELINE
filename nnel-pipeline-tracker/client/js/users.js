@@ -227,7 +227,7 @@ function showDeleteUserModal(userId, name) {
 
   modal.querySelector('#dum-close').addEventListener('click', close);
   modal.querySelector('#dum-cancel').addEventListener('click', close);
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  // Deliberately no click-outside-closes-modal — see setupUserModal for why.
 
   confirmInput.addEventListener('input', () => {
     deleteBtn.disabled = confirmInput.value !== 'DELETE';
@@ -276,7 +276,9 @@ function setupUserModal() {
 
   document.getElementById('modal-close-btn').addEventListener('click', closeModal);
   document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
-  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+  // Deliberately no click-outside-closes-modal: dragging to select text and
+  // releasing past the modal's edge used to register as "clicked outside"
+  // and silently discard the form.
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -348,7 +350,9 @@ function setupPasswordModal() {
 
   document.getElementById('pw-modal-close').addEventListener('click', closeModal);
   document.getElementById('pw-cancel-btn').addEventListener('click', closeModal);
-  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+  // Deliberately no click-outside-closes-modal: dragging to select text and
+  // releasing past the modal's edge used to register as "clicked outside"
+  // and silently discard the form.
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

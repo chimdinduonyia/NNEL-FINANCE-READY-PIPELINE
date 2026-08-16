@@ -298,7 +298,9 @@ function setupNewProjectModal() {
   });
   closeBtn.addEventListener('click', closeModal);
   cancelBtn.addEventListener('click', closeModal);
-  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+  // Deliberately no click-outside-closes-modal: dragging to select text in
+  // any of the textareas below and releasing past the modal's edge used to
+  // register as "clicked outside" and silently discard the whole form.
 
   // Refresh template picker when technology changes
   document.getElementById('np-tech')?.addEventListener('change', (e) => {
