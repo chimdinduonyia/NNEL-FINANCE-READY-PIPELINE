@@ -20,6 +20,7 @@ const { sendJSON, sendError } = require('../utils/response');
 const { readBody }            = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
 const emailService = require('../services/email');
+const { passwordStrengthError } = require('./auth');
 
 const BCRYPT_ROUNDS = 12;
 const INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -71,9 +72,13 @@ async function list(req, res) {
 
 // ---------------------------------------------------------------------------
 // POST /api/users
-// Creates a new user account with NO password — an invite email is sent
-// instead, and the account can't log in until the recipient follows that
-// link and sets their own password (see routes/auth.js acceptInvite).
+// Creates a new user account with the password the admin sets here — no
+// email involved. (There's also an invite-by-email path built and tested —
+// generateInviteToken/resendInvite/acceptInvite in routes/auth.js — sitting
+// unused behind this for now because email delivery needs a verified
+// sending domain that doesn't exist yet. Switching back just means having
+// this function generate a token instead of hashing a password; nothing
+// else needs to change.)
 // Returns 409 if the email is already taken.
 // ---------------------------------------------------------------------------
 async function create(req, res) {
@@ -84,7 +89,7 @@ async function create(req, res) {
   let body;
   try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
 
-  const { full_name, email, system_role, workstream, authority } = body;
+  const { full_name, email, password, system_role, workstream, authority } = body;
 
   if (!full_name || typeof full_name !== 'string' || !full_name.trim()) {
     return sendError(res, 400, 'full_name is required');
@@ -92,66 +97,50 @@ async function create(req, res) {
   if (!email || typeof email !== 'string' || !email.trim()) {
     return sendError(res, 400, 'email is required');
   }
+  const pwError = passwordStrengthError(password);
+  if (pwError) return sendError(res, 400, pwError);
   if (!['admin', 'project_manager', 'user'].includes(system_role)) {
     return sendError(res, 400, 'system_role must be "admin", "project_manager", or "user"');
   }
 
   const normalEmail = email.trim().toLowerCase();
 
+  // SECURITY: check uniqueness before hashing (bcrypt is intentionally slow)
   const [[existing]] = await pool.execute(
     'SELECT id FROM users WHERE email = ?',
     [normalEmail]
   );
   if (existing) return sendError(res, 409, 'A user with this email address already exists');
 
-  const { rawToken, tokenHash, expiresAt } = generateInviteToken();
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
   const conn = await pool.getConnection();
-  let newUserId;
   try {
     await conn.beginTransaction();
     const [result] = await conn.execute(
-      `INSERT INTO users (email, full_name, password_hash, system_role, workstream, authority,
-                          invite_token_hash, invite_expires_at)
-       VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
-      [normalEmail, full_name.trim(), system_role,
-       workstream || null, authority || 'ss', tokenHash, expiresAt]
+      `INSERT INTO users (email, full_name, password_hash, system_role, workstream, authority)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [normalEmail, full_name.trim(), passwordHash, system_role,
+       workstream || null, authority || 'ss']
     );
-    newUserId = result.insertId;
     await auditLog.log(conn, {
       userId: user.id,
       action: 'user_created',
-      detail: { new_user_id: newUserId, email: normalEmail, system_role },
+      detail: { new_user_id: result.insertId, email: normalEmail, system_role },
     });
     await conn.commit();
+    sendJSON(res, 201, {
+      id: result.insertId,
+      email: normalEmail,
+      full_name: full_name.trim(),
+      system_role,
+    });
   } catch (err) {
     await conn.rollback();
     throw err;
   } finally {
     conn.release();
   }
-
-  // The account exists either way at this point — an email delivery
-  // problem shouldn't roll back account creation. The admin can use
-  // "Resend Invite" once whatever's wrong (bad address, Resend outage) is
-  // fixed, without having to recreate the account from scratch.
-  let emailSent = true;
-  let emailError;
-  try {
-    await emailService.sendInviteEmail({ to: normalEmail, fullName: full_name.trim(), token: rawToken });
-  } catch (err) {
-    emailSent  = false;
-    emailError = err.message;
-  }
-
-  sendJSON(res, 201, {
-    id: newUserId,
-    email: normalEmail,
-    full_name: full_name.trim(),
-    system_role,
-    email_sent: emailSent,
-    ...(emailSent ? {} : { email_error: emailError }),
-  });
 }
 
 // ---------------------------------------------------------------------------

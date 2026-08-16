@@ -51,8 +51,12 @@
             <label for="u-email">Email address *</label>
             <input type="email" id="u-email" required placeholder="adaeze@nnel.com">
           </div>
-          <div class="info-box hidden" id="invite-note">
-            An invite email will be sent to this address with a link to set their own password. The account can't sign in until they do.
+          <div class="form-group hidden" id="password-group">
+            <label for="u-password">Password * <span class="form-hint">(minimum 12 characters, with a letter, number, and special character)</span></label>
+            <div class="pw-wrap">
+              <input type="password" id="u-password" autocomplete="new-password" placeholder="••••••••••••">
+              <button type="button" class="pw-toggle" data-target="u-password">Show</button>
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">

@@ -332,4 +332,4 @@ async function me(req, res) {
   });
 }
 
-module.exports = { login, signup, getInvite, acceptInvite, me };
+module.exports = { login, signup, getInvite, acceptInvite, me, passwordStrengthError };

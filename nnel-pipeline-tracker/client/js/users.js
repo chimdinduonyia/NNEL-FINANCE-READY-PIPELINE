@@ -253,11 +253,11 @@ function showDeleteUserModal(userId, name) {
 // New / Edit user modal
 // ---------------------------------------------------------------------------
 function setupUserModal() {
-  const modal      = document.getElementById('user-modal');
-  const form       = document.getElementById('user-form');
-  const errEl      = document.getElementById('modal-error');
-  const inviteNote = document.getElementById('invite-note');
-  const submitBtn  = document.getElementById('modal-submit-btn');
+  const modal     = document.getElementById('user-modal');
+  const form      = document.getElementById('user-form');
+  const errEl     = document.getElementById('modal-error');
+  const pwGroup   = document.getElementById('password-group');
+  const submitBtn = document.getElementById('modal-submit-btn');
 
   const openModal  = () => modal.classList.remove('hidden');
   const closeModal = () => {
@@ -269,8 +269,9 @@ function setupUserModal() {
 
   document.getElementById('new-user-btn').addEventListener('click', () => {
     document.getElementById('modal-title').textContent = 'New User';
-    submitBtn.textContent = 'Create User & Send Invite';
-    inviteNote.classList.remove('hidden');
+    submitBtn.textContent = 'Create User';
+    pwGroup.classList.remove('hidden');
+    document.getElementById('u-password').required = true;
     openModal();
   });
 
@@ -287,6 +288,7 @@ function setupUserModal() {
     const editId    = document.getElementById('edit-user-id').value;
     const fullName  = document.getElementById('u-name').value.trim();
     const email     = document.getElementById('u-email').value.trim();
+    const password  = document.getElementById('u-password').value;
     const role      = document.getElementById('u-role').value;
     const workstream= document.getElementById('u-workstream')?.value || null;
     const authority = document.getElementById('u-authority')?.value  || 'ss';
@@ -297,14 +299,7 @@ function setupUserModal() {
         const body = { full_name: fullName, email, system_role: role, workstream, authority };
         await api.patch(`/api/users/${editId}`, body);
       } else {
-        const result = await api.post('/api/users', { full_name: fullName, email, system_role: role, workstream, authority });
-        if (result && result.email_sent === false) {
-          errEl.textContent = `User created, but the invite email failed to send: ${result.email_error}. Use "Resend Invite" from the table once that's fixed.`;
-          errEl.classList.remove('hidden');
-          await loadUsers();
-          submitBtn.disabled = false;
-          return;
-        }
+        await api.post('/api/users', { full_name: fullName, email, password, system_role: role, workstream, authority });
       }
       closeModal();
       await loadUsers();
@@ -329,7 +324,11 @@ function openEditModal(userId, name, email, role, workstream, authority) {
   const authEl = document.getElementById('u-authority');
   if (authEl) authEl.value = authority || 'ss';
 
-  document.getElementById('invite-note').classList.add('hidden');
+  // Password field is not shown when editing — use Reset Password for that
+  const pwGroup = document.getElementById('password-group');
+  pwGroup.classList.add('hidden');
+  document.getElementById('u-password').required = false;
+  document.getElementById('u-password').value = '';
 
   document.getElementById('user-modal').classList.remove('hidden');
 }
