@@ -108,10 +108,11 @@ function renderProjectBrief() {
 function renderHeader() {
   const el = document.getElementById('project-header');
   document.getElementById('project-name').textContent = project.name.toUpperCase();
+  // Vertical + CAPEX now live in the Project Brief strip below, so they're
+  // not repeated here — this row is just status (+ the At Risk flag, which
+  // isn't shown anywhere else).
   document.getElementById('project-meta').innerHTML = [
     api.fmt.statusBadge(project.status),
-    project.technology ? `<span class="badge badge-outline">${api.fmt.escape(project.technology)}</span>` : '',
-    `<span class="project-capex">${api.fmt.currency(project.capex_usd)} CAPEX</span>`,
     project.is_at_risk ? `<span class="badge badge-red">At Risk</span>` : '',
   ].join('');
 

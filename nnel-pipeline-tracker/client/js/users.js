@@ -62,11 +62,11 @@ function renderTable() {
         : '<span class="badge badge-gray">User</span>';
     const statusBadge = u.is_active
       ? '<span class="badge badge-green">Active</span>'
-      : '<span class="badge badge-red">Inactive</span>';
+      : '<span class="badge badge-red">Deleted</span>';
     const isSelf      = u.id === currentUser.id;
 
     const statusBtn = isSelf ? '' : (u.is_active
-      ? `<button class="btn btn-ghost btn-sm" data-action="deactivate" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">Deactivate</button>`
+      ? `<button class="btn btn-ghost btn-sm" data-action="delete" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}" style="color:var(--red-700);">Delete</button>`
       : `<button class="btn btn-primary btn-sm" data-action="activate" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">Activate</button>`);
 
     const wsBadge   = u.workstream ? `<span class="badge badge-outline" style="text-transform:capitalize;font-size:10px;">${u.workstream}</span>` : '';
@@ -121,27 +121,94 @@ function handleAction(btn) {
       openPasswordModal(uid, name);
       break;
     case 'activate':
-      confirmStatusChange(uid, name, true);
+      confirmActivate(uid, name);
       break;
-    case 'deactivate':
-      confirmStatusChange(uid, name, false);
+    case 'delete':
+      showDeleteUserModal(uid, name);
       break;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Status toggle (activate / deactivate)
+// Reactivating a deleted (deactivated) account — low stakes, fully
+// reversible either way, so a plain confirm is enough here.
 // ---------------------------------------------------------------------------
-async function confirmStatusChange(userId, name, activate) {
-  const verb = activate ? 'activate' : 'deactivate';
-  if (!confirm(`${verb.charAt(0).toUpperCase() + verb.slice(1)} account for ${name}?`)) return;
-
+async function confirmActivate(userId, name) {
+  if (!confirm(`Activate account for ${name}?`)) return;
   try {
-    await api.patch(`/api/users/${userId}/status`, { is_active: activate });
+    await api.patch(`/api/users/${userId}/status`, { is_active: true });
     await loadUsers();
   } catch (err) {
     alert('Error: ' + err.message);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Delete user — same ceremony as deleting a project: explain what actually
+// happens, require typing DELETE to confirm. Under the hood this is the
+// same is_active=0 the Activate button reverses — accounts are never hard-
+// deleted, so audit_log, project_members, and every historical record that
+// references this user id stays intact and an admin can always undo it.
+// The server independently blocks deleting your own account (defence in
+// depth — this button is already hidden for isSelf, but the check lives
+// server-side regardless).
+// ---------------------------------------------------------------------------
+function showDeleteUserModal(userId, name) {
+  document.getElementById('delete-user-modal')?.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'delete-user-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;';
+  modal.innerHTML = `
+    <div class="card" style="width:100%;max-width:440px;">
+      <div class="card-header" style="border-left:4px solid var(--red-700);">
+        <h3 style="color:var(--red-700);">Delete User</h3>
+        <button class="btn btn-ghost btn-sm" id="dum-close">✕</button>
+      </div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:16px;">
+        <p style="font-size:14px;">You are about to delete <strong>${api.fmt.escape(name)}</strong>'s account.
+          They will no longer be able to sign in. The account and its full history
+          (audit log entries, project memberships, gate decisions, documents) are
+          preserved and can be restored at any time by activating it again.</p>
+        <p class="text-sm text-muted">Type <strong>DELETE</strong> below to confirm:</p>
+        <input type="text" id="dum-confirm" placeholder="Type DELETE here" autocomplete="off"
+          style="border:2px solid var(--border);border-radius:var(--radius-control);padding:9px 12px;font-size:14px;width:100%;">
+        <div id="dum-error" class="error-msg hidden"></div>
+        <div class="flex gap-8" style="justify-content:flex-end;">
+          <button class="btn btn-ghost" id="dum-cancel">Cancel</button>
+          <button class="btn btn-danger" id="dum-delete" disabled>Delete User</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  const confirmInput = modal.querySelector('#dum-confirm');
+  const deleteBtn     = modal.querySelector('#dum-delete');
+  const errEl         = modal.querySelector('#dum-error');
+  const close         = () => modal.remove();
+
+  modal.querySelector('#dum-close').addEventListener('click', close);
+  modal.querySelector('#dum-cancel').addEventListener('click', close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+  confirmInput.addEventListener('input', () => {
+    deleteBtn.disabled = confirmInput.value !== 'DELETE';
+  });
+
+  deleteBtn.addEventListener('click', async () => {
+    if (confirmInput.value !== 'DELETE') return;
+    errEl.classList.add('hidden');
+    deleteBtn.disabled = true;
+    try {
+      await api.patch(`/api/users/${userId}/status`, { is_active: false });
+      close();
+      await loadUsers();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+      deleteBtn.disabled = false;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
