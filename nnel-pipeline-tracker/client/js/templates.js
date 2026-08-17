@@ -208,7 +208,7 @@ function renderTemplate(el, techVersions = currentTechVersions) {
     const isActive = v.is_active;
 
     // Bin icon: visible to the creator of this version, or to any admin.
-    // Never shown for an immutable standard template — server always
+    // Never shown for an immutable standard template - server always
     // rejects deleting one, so don't offer a button that can only error.
     // Active versions are blocked server-side too - shown here but the modal
     // will display the server's error if they attempt to delete an active version.
