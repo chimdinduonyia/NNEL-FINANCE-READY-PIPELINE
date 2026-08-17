@@ -20,6 +20,8 @@ let editingItemId   = null;
 let editingStageNum = null; // stage_number currently being renamed inline, or null
 let currentUser     = null;
 let allVersions     = [];   // all template versions (refreshed on loadTemplate)
+let currentTechVersions = []; // versions for the active tech, as last rendered —
+                               // see renderTemplate()'s techVersions param default
 
 // Looks up a stage's current name from the loaded template data.
 function stageNameOf(stageNumber) {
@@ -104,6 +106,7 @@ async function loadVersion(versionId, el, techVersions) {
     gateConfig = gc ?? {};
   } catch { gateConfig = {}; }
 
+  currentTechVersions = techVersions;
   renderTemplate(el, techVersions);
 }
 
@@ -118,7 +121,12 @@ function wireCreateVersionBtn(el) {
 }
 
 // ---------------------------------------------------------------------------
-function renderTemplate(el, techVersions = []) {
+// techVersions defaults to the last-loaded list (currentTechVersions) rather
+// than an empty array — several call sites re-render after a purely local
+// UI change (cancel an inline edit, close a row) and don't have a fresh
+// version list handy. Passing [] there used to blank the whole Version
+// History pane even though nothing about the versions actually changed.
+function renderTemplate(el, techVersions = currentTechVersions) {
   const d = templateData;
   const hasProjects = d.project_count > 0;
 
