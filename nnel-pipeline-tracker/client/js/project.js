@@ -23,6 +23,16 @@ const ACTION_LABELS = {
   stage_reopened: 'Stage re-opened', user_login: 'Signed in',
 };
 
+// Splits a stored capacity string ("50 MW") back into its number + unit for
+// the edit form's two inputs. Falls back to an empty value / default unit
+// for anything that doesn't match the "<number> <kW|MW|GW>" shape this app
+// writes -- e.g. legacy free-text capacity values entered before this was
+// split into two fields.
+function parseCapacity(capacity) {
+  const m = String(capacity ?? '').trim().match(/^(\d+(?:\.\d+)?)\s*(kW|MW|GW)$/i);
+  return m ? { value: m[1], unit: m[2] } : { value: '', unit: 'MW' };
+}
+
 // Maps the project's display technology to the template_versions.technology ENUM value
 const TECH_ENUM = { 'Solar PV': 'solar_pv', 'Biofuels': 'biofuels', 'Abatement': 'abatement' };
 function techParam(technology) {
@@ -298,7 +308,10 @@ function setupStageNav(stripEl) {
   applyOffset();
 }
 
-// Switch to history snapshot for an approved stage
+// Switch to history snapshot for an approved/decided stage. Tabs stay
+// visible and functional (Documents/Audit/RACI/Team aren't stage-scoped —
+// see loadTab()); Checklist/Gate Decision render the read-only snapshot
+// for this stage instead of the live editor.
 function switchToHistoryView(stageNumber) {
   viewStage = stageNumber;
 
@@ -307,11 +320,11 @@ function switchToHistoryView(stageNumber) {
     node.classList.toggle('selected', parseInt(node.dataset.stage, 10) === stageNumber);
   });
 
-  // Hide the tab bar — history is a single self-contained view
-  document.getElementById('tabs-bar').style.display = 'none';
-
-  const el = document.getElementById('section-content');
-  renderHistorySnapshot(el, stageNumber).catch(e => showErr(el, e));
+  // Clicking a stage node means "show me this stage" — jump to the
+  // Checklist tab unless already on a stage-scoped tab.
+  if (activeTab !== 'checklist' && activeTab !== 'gate') activeTab = 'checklist';
+  renderTabs();
+  loadTab(activeTab);
 }
 
 // Return to the normal working view for the current stage
@@ -398,6 +411,24 @@ function renderTabs() {
 function loadTab(tab) {
   const el = document.getElementById('section-content');
   el.innerHTML = '<div class="loading">Loading…</div>';
+
+  // Checklist and Gate Decision are the only stage-scoped tabs. While
+  // browsing a non-current stage (viewStage set, via clicking a green/
+  // approved history node or a grey/locked future node on the stepper),
+  // they show that stage's read-only snapshot instead of the live
+  // current-stage editor. Documents/Audit Trail/RACI/Team aren't
+  // localized to any one stage, so they always show the same
+  // project-wide content regardless of viewStage.
+  if (viewStage !== null && (tab === 'checklist' || tab === 'gate')) {
+    const stageData = project.stages.find(s => s.stage_number === viewStage);
+    if (stageData?.status === 'not_started') {
+      renderFutureStagePreview(el, viewStage).catch(e => showErr(el, e));
+    } else {
+      renderHistorySnapshot(el, viewStage).catch(e => showErr(el, e));
+    }
+    return;
+  }
+
   switch (tab) {
     case 'checklist':  renderChecklist(el).catch(e => showErr(el, e)); break;
     case 'gate':       renderGate(el).catch(e => showErr(el, e)); break;
@@ -697,28 +728,21 @@ async function handleCheckToggle(cb, stageNum) {
   const itemId  = cb.dataset.itemId;
   const checked = cb.checked;
 
-  let evidenceNote  = '';
-  let docsToCreate  = [];
+  let evidenceNote = '';
 
   if (checked) {
     const itemEl   = cb.closest('.checklist-item');
     const itemCode = itemEl?.querySelector('.item-code')?.textContent ?? '';
     const itemDesc = itemEl?.querySelector('.item-desc')?.textContent ?? '';
+    // Any reference documents are already saved by this point — each row in
+    // the modal posts itself individually (see showEvidenceModal).
     const result = await showEvidenceModal({ itemCode, itemDesc, stageNum });
     if (result.cancelled) { cb.checked = false; return; }
     evidenceNote = result.evidenceNote;
-    docsToCreate = result.documents ?? [];
   }
 
   cb.disabled = true;
   try {
-    for (const doc of docsToCreate) {
-      await api.post(`/api/projects/${projectId}/documents`, {
-        title: doc.title, folder_code: doc.folder,
-        stage_number: stageNum, file_ref: doc.fileRef || null,
-        status: 'submitted',
-      });
-    }
     await api.patch(`/api/projects/${projectId}/stages/${stageNum}/checklist/${itemId}`, {
       is_complete:   checked,
       evidence_note: evidenceNote || null,
@@ -747,13 +771,6 @@ async function handleEvidenceEdit(btn) {
 
   btn.disabled = true;
   try {
-    for (const doc of result.documents ?? []) {
-      await api.post(`/api/projects/${projectId}/documents`, {
-        title: doc.title, folder_code: doc.folder,
-        stage_number: stageNum, file_ref: doc.fileRef || null,
-        status: 'submitted',
-      });
-    }
     await api.patch(`/api/projects/${projectId}/stages/${stageNum}/checklist/${itemId}`, {
       is_complete: true, evidence_note: result.evidenceNote || null,
     });
@@ -776,6 +793,16 @@ async function handleEvidenceEdit(btn) {
 // attaching a document is still optional, it's just no longer capped at one.
 let evDocRowSeq = 0; // unique id per row, so rows can be removed individually
 
+// Each document row saves itself immediately (its own "Save" button posts
+// straight to /api/projects/:id/documents and locks the row) rather than
+// waiting for the whole modal to be submitted — so attaching evidence
+// doesn't get lost if the note itself takes longer to write, and so a row
+// half-filled and forgotten can't silently slip into the note save. The
+// modal's own Save button only handles the evidence-note text; it refuses
+// to proceed if any row is filled in but hasn't been individually saved.
+// Documents already saved this way stay saved even if the modal is then
+// Cancelled — Cancel only discards the note text, not documents already
+// committed to the server.
 function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) {
   return new Promise((resolve) => {
     document.getElementById('evidence-modal')?.remove();
@@ -802,7 +829,7 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
           <hr class="divider">
 
           <div class="flex items-center justify-between">
-            <label style="margin:0;">Reference documents <span class="form-hint">(optional, any number)</span></label>
+            <label style="margin:0;">Reference documents <span class="form-hint">(optional, any number — each saves separately)</span></label>
             <button type="button" class="btn btn-ghost btn-sm" id="ev-doc-add">+ Add Document</button>
           </div>
           <div id="ev-doc-rows" style="display:flex;flex-direction:column;gap:12px;"></div>
@@ -810,7 +837,7 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
           <div id="ev-error" class="error-msg hidden"></div>
           <div class="flex gap-8" style="justify-content:flex-end;">
             <button class="btn btn-ghost" id="ev-cancel">Cancel</button>
-            <button class="btn btn-primary" id="ev-save">Save</button>
+            <button class="btn btn-primary" id="ev-save">Save Evidence Note</button>
           </div>
         </div>
       </div>`;
@@ -823,6 +850,7 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
       const row = document.createElement('div');
       row.className = 'ev-doc-row';
       row.dataset.rowId = rowId;
+      row.dataset.saved = 'false';
       row.style.cssText = 'border:1px solid var(--border);border-radius:var(--radius);padding:10px;display:flex;flex-direction:column;gap:8px;';
       row.innerHTML = `
         <div class="flex items-center justify-between">
@@ -842,9 +870,60 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
         <div class="form-group">
           <label>VDR Folder</label>
           <select class="ev-doc-folder">${folderOptions}</select>
+        </div>
+        <div class="ev-doc-row-error error-msg hidden"></div>
+        <div class="flex gap-8" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-primary btn-sm ev-doc-save">Save Document</button>
         </div>`;
       rowsEl.appendChild(row);
-      row.querySelector('.ev-doc-remove').addEventListener('click', () => row.remove());
+
+      row.querySelector('.ev-doc-remove').addEventListener('click', async () => {
+        if (row.dataset.saved === 'true') {
+          // Already persisted — removing it means actually deleting it.
+          if (!confirm('This document was already saved. Remove it permanently?')) return;
+          try {
+            await api.delete(`/api/projects/${projectId}/documents/${row.dataset.docId}`);
+          } catch (err) {
+            alert('Could not remove document: ' + err.message);
+            return;
+          }
+        }
+        row.remove();
+      });
+
+      row.querySelector('.ev-doc-save').addEventListener('click', async () => {
+        const rowErrEl = row.querySelector('.ev-doc-row-error');
+        rowErrEl.classList.add('hidden');
+        const title   = row.querySelector('.ev-doc-title').value.trim();
+        const fileRef = row.querySelector('.ev-doc-fileref').value.trim();
+        const folder  = row.querySelector('.ev-doc-folder').value;
+        if (!title || !folder) {
+          rowErrEl.textContent = 'Title and VDR folder are both required.';
+          rowErrEl.classList.remove('hidden');
+          return;
+        }
+
+        const saveBtn = row.querySelector('.ev-doc-save');
+        saveBtn.disabled = true;
+        try {
+          const result = await api.post(`/api/projects/${projectId}/documents`, {
+            title, folder_code: folder, stage_number: stageNum,
+            file_ref: fileRef || null, status: 'submitted',
+          });
+          row.dataset.saved = 'true';
+          row.dataset.docId = result.id;
+          // Lock the row and show a compact "saved" state
+          row.querySelectorAll('input, select').forEach(f => { f.disabled = true; });
+          saveBtn.replaceWith(Object.assign(document.createElement('span'), {
+            className: 'badge badge-green',
+            textContent: '✓ Saved',
+          }));
+        } catch (err) {
+          rowErrEl.textContent = err.message;
+          rowErrEl.classList.remove('hidden');
+          saveBtn.disabled = false;
+        }
+      });
     }
 
     modal.querySelector('#ev-doc-add').addEventListener('click', addDocRow);
@@ -876,23 +955,23 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
       const errEl = modal.querySelector('#ev-error');
       errEl.classList.add('hidden');
 
-      const note = modal.querySelector('#ev-note').value.trim();
-
-      const documents = [];
+      // Refuse to proceed if any row has content but was never individually
+      // saved — silently dropping a filled-in document would be worse than
+      // asking the user to either save or remove it first.
       for (const row of rowsEl.querySelectorAll('.ev-doc-row')) {
+        if (row.dataset.saved === 'true') continue;
         const title  = row.querySelector('.ev-doc-title').value.trim();
         const fileRef = row.querySelector('.ev-doc-fileref').value.trim();
         const folder  = row.querySelector('.ev-doc-folder').value;
-        if (!title && !fileRef && !folder) continue; // fully empty row — skip silently
-        if (!title || !folder) {
-          errEl.textContent = 'Each document needs at least a title and a VDR folder.';
+        if (title || fileRef || folder) {
+          errEl.textContent = 'You have a document that hasn’t been saved yet — click "Save Document" on it (or Remove it) first.';
           errEl.classList.remove('hidden');
           return;
         }
-        documents.push({ title, fileRef, folder });
       }
 
-      close({ cancelled: false, evidenceNote: note, documents });
+      const note = modal.querySelector('#ev-note').value.trim();
+      close({ cancelled: false, evidenceNote: note });
     });
   });
 }
@@ -1431,6 +1510,7 @@ function showEditProjectPanel() {
   // Remove any existing panel
   document.getElementById('edit-project-panel')?.remove();
 
+  const cap = parseCapacity(project.capacity);
   const panel = document.createElement('div');
   panel.id = 'edit-project-panel';
   panel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;';
@@ -1468,7 +1548,14 @@ function showEditProjectPanel() {
         <div class="form-row">
           <div class="form-group">
             <label>Capacity <span class="form-hint">(optional)</span></label>
-            <input type="text" id="epp-capacity" value="${api.fmt.escape(project.capacity ?? '')}" placeholder="e.g. 50 MW">
+            <div class="flex gap-8">
+              <input type="number" id="epp-capacity" min="0" step="any" value="${api.fmt.escape(cap.value)}" placeholder="e.g. 50" style="flex:1;">
+              <select id="epp-capacity-unit" style="flex:0 0 90px;">
+                <option value="kW" ${cap.unit === 'kW' ? 'selected' : ''}>kW</option>
+                <option value="MW" ${cap.unit === 'MW' ? 'selected' : ''}>MW</option>
+                <option value="GW" ${cap.unit === 'GW' ? 'selected' : ''}>GW</option>
+              </select>
+            </div>
           </div>
           <div class="form-group">
             <label>Location <span class="form-hint">(optional)</span></label>
@@ -1535,7 +1622,10 @@ function showEditProjectPanel() {
         capex_amount: capexAmount,
         capex_currency: capexCurrency,
         capex_usd_equivalent: capexCurrency === 'NGN' ? parseFloat(capexUsdEquiv) : undefined,
-        capacity: panel.querySelector('#epp-capacity').value.trim() || null,
+        capacity: (() => {
+          const v = panel.querySelector('#epp-capacity').value.trim();
+          return v ? `${v} ${panel.querySelector('#epp-capacity-unit').value}` : null;
+        })(),
         location: panel.querySelector('#epp-location').value.trim() || null,
         description:   panel.querySelector('#epp-desc').value.trim() || null,
         objectives:    panel.querySelector('#epp-objectives').value.trim() || null,
@@ -1564,9 +1654,9 @@ function showDeleteProjectModal() {
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;';
   modal.innerHTML = `
     <div class="card" style="width:100%;max-width:440px;overflow:hidden;">
-      <div class="card-header" style="border-left:4px solid var(--red-700);">
-        <h3 style="color:var(--red-700);">Delete Project</h3>
-        <button class="btn btn-ghost btn-sm" id="dpm-close">✕</button>
+      <div class="card-header" style="background:var(--red-700);">
+        <h3 style="color:#fff;">Delete Project</h3>
+        <button class="btn btn-ghost btn-sm" id="dpm-close" style="color:#fff;">✕</button>
       </div>
       <div class="card-body" style="display:flex;flex-direction:column;gap:16px;">
         <p style="font-size:14px;">You are about to permanently archive <strong>${api.fmt.escape(project.name.toUpperCase())}</strong>.
@@ -1621,9 +1711,9 @@ function switchToPreviewView(stageNum) {
   document.querySelectorAll('.stage-node').forEach(node => {
     node.classList.toggle('selected', parseInt(node.dataset.stage, 10) === stageNum);
   });
-  document.getElementById('tabs-bar').style.display = 'none';
-  const el = document.getElementById('section-content');
-  renderFutureStagePreview(el, stageNum).catch(e => showErr(el, e));
+  if (activeTab !== 'checklist' && activeTab !== 'gate') activeTab = 'checklist';
+  renderTabs();
+  loadTab(activeTab);
 }
 
 async function renderFutureStagePreview(el, stageNum) {

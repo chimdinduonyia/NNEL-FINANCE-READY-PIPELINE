@@ -132,7 +132,7 @@ async function getChecklist(req, res, params) {
     LEFT JOIN users u
       ON u.id = sc.completed_by
     WHERE tci.stage_number = ? AND tci.is_active = 1
-    ORDER BY tci.sort_order, tci.item_code`,
+    ORDER BY tci.pillar, tci.sort_order, tci.item_code`,
     [projectId, projectId, stageNumber, stageNumber]
   );
 

@@ -28,6 +28,12 @@
     .version-banner.draft { background:var(--gray-100); border:1px dashed var(--gray-200); color:var(--gray-700); }
     .version-banner strong { font-weight:700; }
 
+    .version-history-group-heading {
+      padding:8px 14px 4px; font-size:11px; font-weight:700; color:var(--text-muted);
+      text-transform:uppercase; letter-spacing:.04em; background:var(--gray-50);
+      border-bottom:1px solid var(--border);
+    }
+
     .stage-section { margin-bottom:24px; }
     .stage-header {
       display:flex; align-items:center; justify-content:space-between;
@@ -40,7 +46,7 @@
 
     .item-row {
       display:grid;
-      grid-template-columns: 100px 1fr 100px 70px 90px 90px;
+      grid-template-columns: 34px 100px 1fr 90px 68px 96px;
       gap:8px; align-items:center;
       padding:10px 12px;
       border-bottom:1px solid var(--border);
@@ -51,25 +57,25 @@
     .item-row.editing  { background:var(--green-50); }
     .item-code  { font-weight:700; font-family:monospace; font-size:12px; }
     .item-desc  { color:var(--gray-900); }
-    .item-actions { display:flex; gap:4px; justify-content:flex-end; }
+    .item-actions { display:flex; gap:2px; justify-content:flex-end; }
 
     .item-row input[type=text], .item-row textarea, .item-row select {
       font-size:12px; padding:4px 8px;
     }
     .item-row textarea { min-height:48px; resize:vertical; }
 
+    .collapsible-panel { margin-top:10px; }
+    .collapsible-toggle:hover { background:var(--gray-100) !important; }
     .add-item-panel {
       padding:14px 16px; background:var(--gray-50);
-      border:1px solid var(--border); border-top:2px dashed var(--border);
+      border:1px solid var(--border);
       border-radius:0 0 var(--radius) var(--radius);
     }
-    .add-item-panel h4 { font-size:13px; font-weight:700; margin-bottom:12px; }
-    .add-item-grid { display:grid; grid-template-columns:1fr 1fr 120px 80px; gap:8px; align-items:end; }
+    .add-item-grid { display:grid; grid-template-columns:1fr 120px 80px; gap:8px; align-items:end; }
     .gate-chain-config {
-      padding:14px 16px; background:var(--blue-100); border-top:2px dashed #93c5fd;
+      padding:14px 16px; background:var(--blue-100); border:1px solid #93c5fd;
       border-radius:0 0 var(--radius) var(--radius);
     }
-    .gate-chain-title { font-size:13px; font-weight:700; color:var(--blue-600); }
   </style>
 </head>
 <body>

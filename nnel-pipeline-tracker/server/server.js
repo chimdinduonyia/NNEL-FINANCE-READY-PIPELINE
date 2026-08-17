@@ -162,8 +162,12 @@ async function handleRequest(req, res) {
   if (params = match('/api/templates/:versionId/items/:itemId/status', path)) {
     if (method === 'PATCH') return templateRoutes.setItemStatus(req, res, params);
   }
+  if (params = match('/api/templates/:versionId/items/:itemId/reorder', path)) {
+    if (method === 'POST') return templateRoutes.reorderItem(req, res, params);
+  }
   if (params = match('/api/templates/:versionId/items/:itemId', path)) {
-    if (method === 'PATCH') return templateRoutes.editItem(req, res, params);
+    if (method === 'PATCH')  return templateRoutes.editItem(req, res, params);
+    if (method === 'DELETE') return templateRoutes.deleteItem(req, res, params);
   }
   if (params = match('/api/templates/:versionId/stages/:stage/status', path)) {
     if (method === 'PATCH') return templateRoutes.setStageStatus(req, res, params);

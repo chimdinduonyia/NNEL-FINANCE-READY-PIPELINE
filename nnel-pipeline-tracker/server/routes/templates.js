@@ -6,9 +6,19 @@
  * GET    /api/templates/active                   — active version for a technology
  *                                                  (?technology=solar_pv|biofuels|abatement)
  * GET    /api/templates/:versionId/items         — items grouped by stage (admin)
- * POST   /api/templates/:versionId/items         — add a new item (admin)
+ * POST   /api/templates/:versionId/items         — add a new item; code is auto-generated (admin)
  * PATCH  /api/templates/:versionId/items/:itemId — edit item; auto-forks if projects exist (admin)
- * PATCH  /api/templates/:versionId/items/:itemId/status — soft-deactivate/restore (admin)
+ * PATCH  /api/templates/:versionId/items/:itemId/status  — soft-deactivate/restore (admin)
+ * DELETE /api/templates/:versionId/items/:itemId         — hard-delete; blocked if any
+ *                                                          project has ever reached this item (admin)
+ * POST   /api/templates/:versionId/items/:itemId/reorder — swap with adjacent item in the
+ *                                                          same stage+pillar group (admin)
+ *
+ * ITEM CODES ARE AUTO-GENERATED, not free text (2026-08-18): "<tech letter><stage>-<pillar
+ * letter>-<NN>", e.g. S2-T-03 = Solar PV, Stage 2, Technical, 3rd item in that stage+pillar
+ * group. NN is always contiguous within (version, stage, pillar) — adding appends the next
+ * number; deleting or reordering renumbers the whole group so there's never a gap. See
+ * renumberPillarGroup() below — the one place this logic lives.
  * POST   /api/templates/:versionId/fork          — manually fork to a new active version (admin)
  * PATCH  /api/templates/:versionId/publish       — publish a draft (admin) — see is_draft below
  *
@@ -34,6 +44,62 @@ const auditLog = require('../services/auditLog');
 const { MAX_STAGE_NUMBER } = require('../constants');
 
 const VALID_PILLARS = ['technical','commercial','finance','legal','environmental','risk','esg'];
+
+// Single letter per pillar, used in the auto-generated item code. Both
+// 'environmental' (legacy) and 'esg' (its replacement) use 'E' — esg
+// superseded environmental/risk as the modern pillar name, so real templates
+// never mix both in the same stage; if one somehow did, two groups could
+// both display "E-01" (cosmetic only, item_code isn't a key anywhere).
+const PILLAR_LETTER = {
+  technical: 'T', commercial: 'C', finance: 'F', legal: 'L',
+  environmental: 'E', risk: 'R', esg: 'E',
+};
+// Tech-vertical letter prefix, matching the codes every original template
+// shipped with (S0-T-01 for Solar PV, B0-T-01 for Biofuels, A0-T-01 for
+// Abatement — see CLAUDE.md's multi-vertical template notes).
+const TECH_PREFIX = { solar_pv: 'S', biofuels: 'B', abatement: 'A' };
+
+// ---------------------------------------------------------------------------
+// Renumbers every item in one (template_version, stage, pillar) group so
+// item_code and sort_order are contiguous 1..N in current sort_order order.
+// The one place item_code generation logic lives — called after any delete
+// or reorder within a group (add doesn't need it: a new item is always
+// appended at position N+1, nothing else shifts).
+// Caller is responsible for the surrounding transaction.
+// ---------------------------------------------------------------------------
+async function renumberPillarGroup(conn, versionId, stageNumber, pillar, techPrefix) {
+  const [items] = await conn.execute(
+    `SELECT id FROM template_checklist_items
+     WHERE template_version_id = ? AND stage_number = ? AND pillar = ?
+     ORDER BY sort_order, id`,
+    [versionId, stageNumber, pillar]
+  );
+  const letter = PILLAR_LETTER[pillar] ?? pillar.charAt(0).toUpperCase();
+
+  // Two passes, not one: item_code has a UNIQUE(template_version_id,
+  // item_code) constraint, checked immediately per statement (no deferred
+  // constraints in MySQL/InnoDB). Assigning final codes in a single pass
+  // can collide with a not-yet-updated sibling still sitting on the code
+  // we're about to move onto (e.g. moving item B onto "S0-C-01" while item
+  // A is still sitting on "S0-C-01", waiting its turn). First move every
+  // item in the group to a temp code that can't collide with anything
+  // (keyed on its own id), then assign real final codes in a second pass.
+  // item_code is VARCHAR(20) — keep the temp code short. "~" can't collide
+  // with a real code (those always start with a tech-prefix letter).
+  for (const item of items) {
+    await conn.execute(
+      'UPDATE template_checklist_items SET item_code = ? WHERE id = ?',
+      [`~${item.id}`, item.id]
+    );
+  }
+  for (let i = 0; i < items.length; i++) {
+    const code = `${techPrefix}${stageNumber}-${letter}-${String(i + 1).padStart(2, '0')}`;
+    await conn.execute(
+      'UPDATE template_checklist_items SET item_code = ?, sort_order = ? WHERE id = ?',
+      [code, i + 1, items[i].id]
+    );
+  }
+}
 
 // Standard VDR folder set — same 10 folders every original template version
 // was seeded with (002/006/007_seed_template_*.sql). A version created via
@@ -241,12 +307,16 @@ async function getItems(req, res, params) {
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
 
+  // pillar comes before sort_order here because sort_order is now scoped
+  // per (stage, pillar) group (see renumberPillarGroup) — two different
+  // pillars can both have an item at sort_order 1, so sorting by sort_order
+  // first would interleave pillars instead of keeping each group together.
   const [items] = await pool.execute(
     `SELECT id, stage_number, pillar, item_code, description, guidance,
             is_mandatory, sort_order, is_active
      FROM template_checklist_items
      WHERE template_version_id = ?
-     ORDER BY stage_number, sort_order, item_code`,
+     ORDER BY stage_number, pillar, sort_order, item_code`,
     [versionId]
   );
 
@@ -285,10 +355,13 @@ async function getItems(req, res, params) {
 
 // ---------------------------------------------------------------------------
 // POST /api/templates/:versionId/items
-// Adds a new checklist item. Always modifies in-place on the specified
-// version (adding new items to an in-use version is safe — existing
-// stage_checklist rows are unaffected; only new project initialisations
-// will pick up the new item).
+// Adds a new checklist item, appended at the end of its stage+pillar group.
+// item_code is auto-generated (see PILLAR_LETTER/TECH_PREFIX/
+// renumberPillarGroup up top) — the caller supplies stage_number, pillar,
+// description, guidance, is_mandatory only.
+// Always modifies in-place on the specified version (adding new items to an
+// in-use version is safe — existing stage_checklist rows are unaffected;
+// only new project initialisations will pick up the new item).
 // ---------------------------------------------------------------------------
 async function addItem(req, res, params) {
   const user = await requireLogin(req, res);
@@ -301,7 +374,7 @@ async function addItem(req, res, params) {
   let body;
   try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
 
-  const { stage_number, pillar, item_code, description, guidance, is_mandatory, sort_order } = body;
+  const { stage_number, pillar, description, guidance, is_mandatory } = body;
 
   if (!Number.isInteger(Number(stage_number)) || stage_number < 0 || stage_number > MAX_STAGE_NUMBER) {
     return sendError(res, 400, `stage_number (0–${MAX_STAGE_NUMBER}) is required`);
@@ -309,41 +382,51 @@ async function addItem(req, res, params) {
   if (!VALID_PILLARS.includes(pillar)) {
     return sendError(res, 400, `pillar must be one of: ${VALID_PILLARS.join(', ')}`);
   }
-  if (!item_code || !description) {
-    return sendError(res, 400, 'item_code and description are required');
+  if (!description || !description.trim()) {
+    return sendError(res, 400, 'description is required');
   }
 
-  // Confirm the version exists
+  // Confirm the version exists and get its technology (for the code prefix)
   const [[tv]] = await pool.execute(
-    'SELECT version FROM template_versions WHERE id = ?', [versionId]
+    'SELECT version, technology FROM template_versions WHERE id = ?', [versionId]
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
+  const techPrefix = TECH_PREFIX[tv.technology] ?? 'S';
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+
+    // Position = last in the group. No renumbering needed for an append —
+    // nothing else shifts.
+    const [[{ maxSort }]] = await conn.execute(
+      `SELECT MAX(sort_order) AS maxSort FROM template_checklist_items
+       WHERE template_version_id = ? AND stage_number = ? AND pillar = ?`,
+      [versionId, stage_number, pillar]
+    );
+    const position = (maxSort ?? 0) + 1;
+    const letter = PILLAR_LETTER[pillar] ?? pillar.charAt(0).toUpperCase();
+    const itemCode = `${techPrefix}${stage_number}-${letter}-${String(position).padStart(2, '0')}`;
+
     const [result] = await conn.execute(
       `INSERT INTO template_checklist_items
          (template_version_id, stage_number, pillar, item_code, description,
           guidance, is_mandatory, sort_order, is_active)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [versionId, stage_number, pillar, item_code.trim(),
+      [versionId, stage_number, pillar, itemCode,
        description.trim(), guidance || null,
        is_mandatory !== false ? 1 : 0,
-       sort_order ?? 0]
+       position]
     );
     await auditLog.log(conn, {
       userId: user.id,
       action: 'template_item_added',
-      detail: { version_id: versionId, version: tv.version, item_code: item_code.trim() },
+      detail: { version_id: versionId, version: tv.version, item_code: itemCode },
     });
     await conn.commit();
-    sendJSON(res, 201, { id: result.insertId, item_code: item_code.trim() });
+    sendJSON(res, 201, { id: result.insertId, item_code: itemCode });
   } catch (err) {
     await conn.rollback();
-    if (err.code === 'ER_DUP_ENTRY') {
-      return sendError(res, 409, `Item code '${item_code}' already exists in this template version`);
-    }
     throw err;
   } finally {
     conn.release();
@@ -505,6 +588,201 @@ async function setItemStatus(req, res, params) {
       userId: user.id,
       action: 'template_item_status_changed',
       detail: { version_id: targetVersionId, item_code: item.item_code, is_active: body.is_active, forked },
+    });
+
+    await conn.commit();
+    sendJSON(res, 200, { updated: true, forked, new_version_id: forked ? targetVersionId : null, new_version: newVersion });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * DELETE /api/templates/:versionId/items/:itemId
+ * Hard-deletes a checklist item and renumbers the rest of its stage+pillar
+ * group to close the gap (e.g. deleting the 2nd of 4 items makes the old
+ * 3rd become the new 2nd, etc.).
+ *
+ * SAFETY: blocked if any project has ever reached this item — a
+ * stage_checklist row referencing it exists (created eagerly whenever a
+ * project opens that stage, whether or not the item's been ticked — see
+ * stageService.initializeStageChecklist). Deleting it would break that
+ * project's checklist history (stage_checklist.checklist_item_id has a FK
+ * on this table with no cascade). Disable it instead once it's been used;
+ * only ever-unused items can be hard-deleted.
+ *
+ * Same fork-on-edit rule as every other item edit on top of that.
+ */
+async function deleteItem(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+  if (!['admin','project_manager'].includes(user.system_role)) return sendError(res, 403, 'Forbidden');
+
+  const versionId = parseInt(params.versionId, 10);
+  const itemId    = parseInt(params.itemId, 10);
+  if (!versionId || !itemId) return sendError(res, 400, 'Invalid ids');
+
+  const [[item]] = await pool.execute(
+    'SELECT item_code, stage_number, pillar FROM template_checklist_items WHERE id = ? AND template_version_id = ?',
+    [itemId, versionId]
+  );
+  if (!item) return sendError(res, 404, 'Item not found in this template version');
+
+  const [[{ usageCount }]] = await pool.execute(
+    'SELECT COUNT(*) AS usageCount FROM stage_checklist WHERE checklist_item_id = ?',
+    [itemId]
+  );
+  if (Number(usageCount) > 0) {
+    return sendError(res, 409,
+      `Cannot delete — ${usageCount} project stage${usageCount > 1 ? 's have' : ' has'} already used this item. Disable it instead.`);
+  }
+
+  const [[tv]] = await pool.execute(
+    'SELECT version, technology FROM template_versions WHERE id = ?', [versionId]
+  );
+  if (!tv) return sendError(res, 404, 'Template version not found');
+  const techPrefix = TECH_PREFIX[tv.technology] ?? 'S';
+
+  const cnt = await projectCount(tv.version);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    let targetVersionId = versionId;
+    let forked = false;
+    let newVersion = null;
+
+    if (cnt > 0) {
+      const fork = await forkVersion(conn, versionId, user.id);
+      targetVersionId = fork.id;
+      newVersion      = fork.version;
+      forked          = true;
+      await auditLog.log(conn, {
+        userId: user.id, action: 'template_version_created',
+        detail: { reason: 'item_delete_with_active_projects', new_version: newVersion },
+      });
+    }
+
+    // Match by item_code, not id — a fork clones the row with a new id but
+    // the same code (same pattern editItem/setItemStatus already use).
+    await conn.execute(
+      'DELETE FROM template_checklist_items WHERE template_version_id = ? AND item_code = ?',
+      [targetVersionId, item.item_code]
+    );
+
+    await renumberPillarGroup(conn, targetVersionId, item.stage_number, item.pillar, techPrefix);
+
+    await auditLog.log(conn, {
+      userId: user.id, action: 'template_item_deleted',
+      detail: { version_id: targetVersionId, item_code: item.item_code, forked },
+    });
+
+    await conn.commit();
+    sendJSON(res, 200, { deleted: true, forked, new_version_id: forked ? targetVersionId : null, new_version: newVersion });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * POST /api/templates/:versionId/items/:itemId/reorder
+ * Body: { direction: 'up' | 'down' }
+ *
+ * Swaps this item with its adjacent neighbour within the same stage+pillar
+ * group, then renumbers the whole group so codes stay contiguous — moving
+ * the 4th item up makes it S2-T-03 and the old 3rd becomes S2-T-04.
+ *
+ * Unlike delete, reordering doesn't remove anything, so it's safe even for
+ * an item projects have already used — stage_checklist keys off the
+ * numeric id, not the code, so a renumber never touches those rows.
+ * Historical audit-log entries keep whatever code an item had AT THE TIME
+ * it was logged — normal audit-trail behaviour, not something this needs
+ * to (or should) retroactively rewrite.
+ *
+ * Same fork-on-edit rule as every other item edit.
+ */
+async function reorderItem(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+  if (!['admin','project_manager'].includes(user.system_role)) return sendError(res, 403, 'Forbidden');
+
+  const versionId = parseInt(params.versionId, 10);
+  const itemId    = parseInt(params.itemId, 10);
+  if (!versionId || !itemId) return sendError(res, 400, 'Invalid ids');
+
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
+  if (!['up','down'].includes(body.direction)) {
+    return sendError(res, 400, "direction must be 'up' or 'down'");
+  }
+
+  const [[item]] = await pool.execute(
+    'SELECT item_code, stage_number, pillar FROM template_checklist_items WHERE id = ? AND template_version_id = ?',
+    [itemId, versionId]
+  );
+  if (!item) return sendError(res, 404, 'Item not found in this template version');
+
+  const [[tv]] = await pool.execute(
+    'SELECT version, technology FROM template_versions WHERE id = ?', [versionId]
+  );
+  if (!tv) return sendError(res, 404, 'Template version not found');
+  const techPrefix = TECH_PREFIX[tv.technology] ?? 'S';
+
+  const cnt = await projectCount(tv.version);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    let targetVersionId = versionId;
+    let forked = false;
+    let newVersion = null;
+
+    if (cnt > 0) {
+      const fork = await forkVersion(conn, versionId, user.id);
+      targetVersionId = fork.id;
+      newVersion      = fork.version;
+      forked          = true;
+      await auditLog.log(conn, {
+        userId: user.id, action: 'template_version_created',
+        detail: { reason: 'item_reorder_with_active_projects', new_version: newVersion },
+      });
+    }
+
+    const [groupItems] = await conn.execute(
+      `SELECT id, item_code, sort_order FROM template_checklist_items
+       WHERE template_version_id = ? AND stage_number = ? AND pillar = ?
+       ORDER BY sort_order, id`,
+      [targetVersionId, item.stage_number, item.pillar]
+    );
+    const idx = groupItems.findIndex(g => g.item_code === item.item_code);
+    if (idx === -1) {
+      await conn.rollback();
+      return sendError(res, 404, 'Item not found in this template version');
+    }
+    const neighborIdx = body.direction === 'up' ? idx - 1 : idx + 1;
+    if (neighborIdx < 0 || neighborIdx >= groupItems.length) {
+      await conn.rollback();
+      return sendError(res, 400, `Already at the ${body.direction === 'up' ? 'top' : 'bottom'} of this group`);
+    }
+
+    // Swap sort_order directly — no sentinel needed, sort_order carries no
+    // uniqueness constraint (unlike the stage-number swap in reorderStage).
+    const a = groupItems[idx];
+    const b = groupItems[neighborIdx];
+    await conn.execute('UPDATE template_checklist_items SET sort_order = ? WHERE id = ?', [b.sort_order, a.id]);
+    await conn.execute('UPDATE template_checklist_items SET sort_order = ? WHERE id = ?', [a.sort_order, b.id]);
+
+    await renumberPillarGroup(conn, targetVersionId, item.stage_number, item.pillar, techPrefix);
+
+    await auditLog.log(conn, {
+      userId: user.id, action: 'template_item_reordered',
+      detail: { version_id: targetVersionId, stage_number: item.stage_number, pillar: item.pillar, direction: body.direction, forked },
     });
 
     await conn.commit();
@@ -1295,6 +1573,7 @@ async function deleteVersion(req, res, params) {
 
 module.exports = {
   listVersions, getActive, getItems, addItem, editItem, setItemStatus, setStageStatus,
+  deleteItem, reorderItem,
   manualFork, publishDraft, createVersion, setActive, deleteVersion,
   getGateApprovers, setGateApprovers, clearGateApprovers,
   renameStage, addStage, reorderStage,

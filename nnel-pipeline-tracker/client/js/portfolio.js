@@ -340,7 +340,12 @@ function setupNewProjectModal() {
     const capexAmount     = parseFloat(document.getElementById('np-capex-amount').value);
     const capexCurrency   = document.getElementById('np-capex-currency').value;
     const capexUsdEquiv   = document.getElementById('np-capex-usd-equiv').value;
-    const capacity        = document.getElementById('np-capacity').value.trim();
+    // Capacity is two inputs (value + unit) combined into the one string the
+    // backend stores, e.g. "50 MW" -- same format as before this was split,
+    // so nothing downstream that displays project.capacity needs to change.
+    const capacityValue   = document.getElementById('np-capacity').value.trim();
+    const capacityUnit    = document.getElementById('np-capacity-unit').value;
+    const capacity        = capacityValue ? `${capacityValue} ${capacityUnit}` : '';
     const location         = document.getElementById('np-location').value.trim();
     const tech            = document.getElementById('np-tech').value.trim();
     const desc            = document.getElementById('np-desc').value.trim();

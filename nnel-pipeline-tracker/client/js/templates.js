@@ -22,6 +22,17 @@ let currentUser     = null;
 let allVersions     = [];   // all template versions (refreshed on loadTemplate)
 let currentTechVersions = []; // versions for the active tech, as last rendered —
                                // see renderTemplate()'s techVersions param default
+const expandedAddItemPanels   = new Set(); // stage_numbers with "+ Add item" panel open
+const expandedGateChainPanels = new Set(); // stage_numbers with "Gate Approver Chain" panel open
+
+// Small icon set for item-row actions — kept here rather than api.icons
+// since these are specific to this editor (eye/eye-off for disable/restore,
+// bin for delete, pencil for edit — all icons now, was three text buttons).
+const ICON_EYE = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1 7.5S3.5 3 7.5 3s6.5 4.5 6.5 4.5-2.5 4.5-6.5 4.5S1 7.5 1 7.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="7.5" cy="7.5" r="2" stroke="currentColor" stroke-width="1.3"/></svg>`;
+const ICON_EYE_OFF = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1 7.5S3.5 3 7.5 3s6.5 4.5 6.5 4.5-2.5 4.5-6.5 4.5S1 7.5 1 7.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="7.5" cy="7.5" r="2" stroke="currentColor" stroke-width="1.3"/><line x1="2" y1="13" x2="13" y2="2" stroke="currentColor" stroke-width="1.3" stroke-linecap="square"/></svg>`;
+const ICON_TRASH = `<svg width="13" height="13" viewBox="0 0 13 13" fill="none" style="vertical-align:middle;"><rect x="1" y="3" width="11" height="1.5" fill="currentColor" rx="0.5"/><rect x="4.5" y="1" width="4" height="1.5" fill="currentColor" rx="0.5"/><path d="M2.5 4.5L3 11.5H10L10.5 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="square" fill="none"/><line x1="6.5" y1="6" x2="6.5" y2="10" stroke="currentColor" stroke-width="1.3" stroke-linecap="square"/><line x1="4.5" y1="6" x2="4.5" y2="10" stroke="currentColor" stroke-width="1.3" stroke-linecap="square"/><line x1="8.5" y1="6" x2="8.5" y2="10" stroke="currentColor" stroke-width="1.3" stroke-linecap="square"/></svg>`;
+const ICON_PENCIL = `<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9.5 2 12 4.5 5 11.5 2 12l.5-3L9.5 2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+const ICON_CHEVRON = `<svg width="12" height="12" viewBox="0 0 14 14" fill="none" class="chevron-icon"><polyline points="3.5,5.5 7,9 10.5,5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
 
 // Looks up a stage's current name from the loaded template data.
 function stageNameOf(stageNumber) {
@@ -89,6 +100,23 @@ async function loadTemplate() {
   await loadVersion(openId, el, techVersions);
 }
 
+// Refreshes the editor after a mutation, without the full-page reload/
+// flicker that re-fetching the whole version list (loadTemplate) causes.
+// Most edits (save an item, toggle a status, reorder, gate-chain changes)
+// stay on the same version — loadVersion(activeVersionId) re-fetches just
+// that version's items/gate-config, reusing the already-cached version list
+// instead of hitting GET /api/templates again. Only a genuine fork (a new
+// version was just created to protect in-flight projects) needs the fuller
+// loadTemplate(), since the sidebar's version list itself changed.
+async function reload(result) {
+  if (result?.forked) {
+    activeVersionId = result.new_version_id;
+    await loadTemplate();
+  } else {
+    await loadVersion(activeVersionId);
+  }
+}
+
 async function loadVersion(versionId, el, techVersions) {
   if (!el) el = document.getElementById('template-content');
   if (!techVersions) {
@@ -150,8 +178,18 @@ function renderTemplate(el, techVersions = currentTechVersions) {
     headerActionsEl.querySelector('#publish-draft-btn')?.addEventListener('click', handlePublishDraft);
   }
 
-  // Version history panel
-  const versionHistory = techVersions.map(v => {
+  // Version history panel — drafts and published versions grouped under
+  // their own headings, so it's obvious at a glance which versions are
+  // still work-in-progress (no "Publish" button shows for anything already
+  // published — including versions that predate the draft/publish feature
+  // and were backfilled to published so nothing already in use disappeared).
+  const drafts    = techVersions.filter(v => v.is_draft);
+  const published = techVersions.filter(v => !v.is_draft);
+  const versionHistory =
+    (drafts.length ? `<div class="version-history-group-heading">Drafts</div>${drafts.map(renderVersionRow).join('')}` : '') +
+    (published.length ? `<div class="version-history-group-heading">Published</div>${published.map(renderVersionRow).join('')}` : '');
+
+  function renderVersionRow(v) {
     const isOpen   = v.id === activeVersionId;
     const isActive = v.is_active;
 
@@ -193,7 +231,7 @@ function renderTemplate(el, techVersions = currentTechVersions) {
          style="margin-top:6px;font-size:11px;color:var(--green-700);">Set as Active</button>` : ''}
       ${v.is_draft ? `<span class="text-muted text-sm" style="display:block;margin-top:6px;font-size:11px;">Publish to make selectable</span>` : ''}
     </div>`;
-  }).join('');
+  }
 
   const stageNumbers = d.stages.map(s => s.stage_number);
   const stagesHtml = d.stages.map((s, i) =>
@@ -310,6 +348,31 @@ function renderTemplate(el, techVersions = currentTechVersions) {
     btn.addEventListener('click', e => handleAction(e.currentTarget));
   });
 
+  // Wire up item reorder (^v) buttons
+  el.querySelectorAll('.item-reorder-btn').forEach(btn => {
+    btn.addEventListener('click', () => reorderItem(parseInt(btn.dataset.itemId, 10), btn.dataset.dir));
+  });
+
+  // Wire up the "+ Add item to Stage X" / "Gate Approver Chain" collapsible
+  // headers — toggle open state, remember it per stage so it survives the
+  // next lightweight reload().
+  el.querySelectorAll('.add-item-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const stageNum = parseInt(btn.dataset.panelId.replace('add-item-', ''), 10);
+      if (expandedAddItemPanels.has(stageNum)) expandedAddItemPanels.delete(stageNum);
+      else expandedAddItemPanels.add(stageNum);
+      renderTemplate(el);
+    });
+  });
+  el.querySelectorAll('.gate-chain-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const stageNum = parseInt(btn.dataset.panelId.replace('gate-chain-', ''), 10);
+      if (expandedGateChainPanels.has(stageNum)) expandedGateChainPanels.delete(stageNum);
+      else expandedGateChainPanels.add(stageNum);
+      renderTemplate(el);
+    });
+  });
+
   // Wire up add-item forms
   el.querySelectorAll('.add-item-form').forEach(form => {
     form.addEventListener('submit', e => handleAddItem(e));
@@ -333,16 +396,23 @@ function renderStage(stage, chain = [], isFirst = false, isLast = false) {
   const inactiveItems = stage.items.filter(i => !i.is_active);
   const allItems      = [...activeItems, ...inactiveItems];
 
-  const rowsHtml = allItems.map(item => renderItemRow(item)).join('');
+  // Reorder (^v) is scoped to each item's own (stage, pillar) group — item
+  // codes renumber within that group, not across the whole stage — so
+  // first/last-in-group has to be computed per pillar, not per stage.
+  const groupPositions = {}; // item.id -> { isFirstInGroup, isLastInGroup }
+  const byPillarForOrder = {};
+  allItems.forEach(item => {
+    (byPillarForOrder[item.pillar] ??= []).push(item);
+  });
+  Object.values(byPillarForOrder).forEach(group => {
+    group.forEach((item, i) => {
+      groupPositions[item.id] = { isFirstInGroup: i === 0, isLastInGroup: i === group.length - 1 };
+    });
+  });
 
-  // Next suggested item code: increment the last digit in the highest code
-  const lastCode = activeItems.length
-    ? activeItems.reduce((max, i) => i.item_code > max ? i.item_code : max, activeItems[0].item_code)
-    : null;
-
-  const suggestedCode = lastCode
-    ? lastCode.replace(/(\d+)(?!.*\d)/, n => String(parseInt(n, 10) + 1))
-    : `?${stage.stage_number}-T-01`;
+  const rowsHtml = allItems.map(item =>
+    renderItemRow(item, groupPositions[item.id])
+  ).join('');
 
   const pillarOpts = PILLAR_OPTIONS.map(p =>
     `<option value="${p.value}">${p.label}</option>`).join('');
@@ -407,19 +477,21 @@ function renderStage(stage, chain = [], isFirst = false, isLast = false) {
     </div>
     ${deactivatedBanner}
     <div class="stage-body">
-      <div style="display:grid;grid-template-columns:100px 1fr 100px 70px 90px 90px;gap:8px;padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;">
-        <div>Code</div><div>Description</div><div>Pillar</div><div>Mandatory</div><div></div><div></div>
+      <div style="display:grid;grid-template-columns:34px 100px 1fr 90px 68px 96px;gap:8px;padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;">
+        <div></div><div>Code</div><div>Description</div><div>Pillar</div><div>Mandatory</div><div>Actions</div>
       </div>
       ${rowsHtml || '<div style="padding:16px;color:var(--text-muted);font-size:13px;">No items yet.</div>'}
     </div>
-    <div class="add-item-panel">
-      <h4>+ Add item to Stage ${stage.stage_number}</h4>
+
+    ${renderCollapsiblePanel({
+      id: `add-item-${stage.stage_number}`,
+      title: `+ Add item to Stage ${stage.stage_number}`,
+      expanded: expandedAddItemPanels.has(stage.stage_number),
+      toggleClass: 'add-item-toggle',
+      bodyClass: 'add-item-panel',
+      body: `
       <form class="add-item-form" data-stage="${stage.stage_number}">
         <div class="add-item-grid">
-          <div class="form-group">
-            <label>Item code *</label>
-            <input type="text" name="item_code" value="${api.fmt.escape(suggestedCode)}" required>
-          </div>
           <div class="form-group">
             <label>Description *</label>
             <input type="text" name="description" required placeholder="Checklist item text…">
@@ -440,18 +512,48 @@ function renderStage(stage, chain = [], isFirst = false, isLast = false) {
           <label>Guidance text</label>
           <input type="text" name="guidance" placeholder="Optional: detailed instructions shown to the project team">
         </div>
+        <div class="form-hint mt-8">Item code is generated automatically (stage + pillar + serial number).</div>
         <div class="add-item-error error-msg hidden mt-8"></div>
         <button type="submit" class="btn btn-primary btn-sm mt-8">Add Item</button>
-      </form>
-    </div>
+      </form>`,
+    })}
 
-    <!-- Gate Approver Chain configuration -->
-    ${renderGateChainSection(stage.stage_number, chain)}
+    ${renderCollapsiblePanel({
+      id: `gate-chain-${stage.stage_number}`,
+      title: `${api.icons.chainLink} Gate Approver Chain`,
+      subtitle: `who signs off at Stage ${stage.stage_number} (in order)`,
+      expanded: expandedGateChainPanels.has(stage.stage_number),
+      toggleClass: 'gate-chain-toggle',
+      bodyClass: 'gate-chain-config',
+      body: renderGateChainSection(stage.stage_number, chain),
+    })}
   </div>`;
 }
 
 // ---------------------------------------------------------------------------
-function renderItemRow(item) {
+// Shared collapsible-section shell used for "+ Add item to Stage X" and
+// "Gate Approver Chain" — click the header to expand/collapse. State is
+// tracked per-stage in expandedAddItemPanels/expandedGateChainPanels (see
+// top of file) so it survives the lightweight reload() after a save.
+// ---------------------------------------------------------------------------
+function renderCollapsiblePanel({ id, title, subtitle = '', expanded, toggleClass, bodyClass, body }) {
+  return `<div class="collapsible-panel">
+    <button type="button" class="collapsible-toggle ${toggleClass}" data-panel-id="${id}"
+      style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+             padding:10px 14px;background:var(--gray-50);border:1px solid var(--border);
+             ${expanded ? 'border-bottom:none;' : 'border-radius:0 0 var(--radius) var(--radius);'}
+             cursor:pointer;font-family:inherit;text-align:left;">
+      <span style="font-size:13px;font-weight:700;color:var(--gray-900);">
+        ${title}${subtitle ? `<span class="text-muted" style="font-size:12px;font-weight:400;margin-left:6px;">${subtitle}</span>` : ''}
+      </span>
+      <span style="display:inline-flex;transition:transform .15s;${expanded ? 'transform:rotate(180deg);' : ''}">${ICON_CHEVRON}</span>
+    </button>
+    <div class="${bodyClass} ${expanded ? '' : 'hidden'}" style="border-radius:0 0 var(--radius) var(--radius);">${body}</div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
+function renderItemRow(item, groupPos = { isFirstInGroup: true, isLastInGroup: true }) {
   const isEditing = editingItemId === item.id;
   const inactive  = !item.is_active;
   const cls = ['item-row', inactive ? 'inactive' : '', isEditing ? 'editing' : ''].filter(Boolean).join(' ');
@@ -462,6 +564,7 @@ function renderItemRow(item) {
     ).join('');
 
     return `<div class="${cls}" data-item-id="${item.id}">
+      <div></div>
       <div class="item-code">${api.fmt.escape(item.item_code)}</div>
       <div>
         <input type="text" id="edit-desc-${item.id}" value="${api.fmt.escape(item.description)}" style="width:100%;margin-bottom:4px;">
@@ -476,7 +579,6 @@ function renderItemRow(item) {
         <button class="btn btn-primary btn-sm" data-action="save" data-item-id="${item.id}">Save</button>
         <button class="btn btn-ghost btn-sm" data-action="cancel" data-item-id="${item.id}">Cancel</button>
       </div>
-      <div></div>
     </div>`;
   }
 
@@ -484,26 +586,35 @@ function renderItemRow(item) {
   const mandBadge   = item.is_mandatory
     ? '<span class="badge badge-green" style="font-size:10px;">Yes</span>'
     : '<span class="badge badge-gray"  style="font-size:10px;">No</span>';
-  const statusBtn = item.is_active
-    ? `<button class="btn btn-ghost btn-sm" data-action="deactivate" data-item-id="${item.id}"
-         style="color:var(--red-700);border-color:var(--red-100);">Disable</button>`
-    : `<button class="btn btn-ghost btn-sm" data-action="restore" data-item-id="${item.id}"
-         style="color:var(--green-700);border-color:var(--green-100);">Restore</button>`;
 
   const descHtml = inactive
     ? `<span style="text-decoration:line-through;color:var(--text-muted);">${api.fmt.escape(item.description)}</span>
        <span class="badge badge-red" style="font-size:10px;margin-left:6px;vertical-align:middle;">Disabled</span>`
     : api.fmt.escape(item.description);
 
+  const reorderBtns = `<span style="display:inline-flex;flex-direction:column;gap:1px;">
+    <button class="btn btn-ghost btn-sm item-reorder-btn" data-item-id="${item.id}" data-dir="up"
+      ${groupPos.isFirstInGroup ? 'disabled' : ''} title="Move up within ${pillarLabel}"
+      style="padding:0 4px;line-height:1;font-size:9px;${groupPos.isFirstInGroup ? 'opacity:.3;' : ''}">▲</button>
+    <button class="btn btn-ghost btn-sm item-reorder-btn" data-item-id="${item.id}" data-dir="down"
+      ${groupPos.isLastInGroup ? 'disabled' : ''} title="Move down within ${pillarLabel}"
+      style="padding:0 4px;line-height:1;font-size:9px;${groupPos.isLastInGroup ? 'opacity:.3;' : ''}">▼</button>
+  </span>`;
+
   return `<div class="${cls}" data-item-id="${item.id}">
+    <div>${reorderBtns}</div>
     <div class="item-code">${api.fmt.escape(item.item_code)}</div>
     <div class="item-desc" title="${api.fmt.escape(item.guidance ?? '')}">${descHtml}</div>
     <div class="text-sm text-muted">${inactive ? '-' : pillarLabel}</div>
     <div>${inactive ? '' : mandBadge}</div>
     <div class="item-actions">
-      ${item.is_active ? `<button class="btn btn-ghost btn-sm" data-action="edit" data-item-id="${item.id}">Edit</button>` : ''}
+      ${item.is_active ? `<button class="btn btn-ghost btn-sm" data-action="edit" data-item-id="${item.id}" title="Edit">${ICON_PENCIL}</button>` : ''}
+      <button class="btn btn-ghost btn-sm" data-action="${item.is_active ? 'deactivate' : 'restore'}" data-item-id="${item.id}"
+        title="${item.is_active ? 'Disable' : 'Restore'}"
+        style="color:${item.is_active ? 'var(--red-700)' : 'var(--green-700)'};">${item.is_active ? ICON_EYE : ICON_EYE_OFF}</button>
+      <button class="btn btn-ghost btn-sm" data-action="delete" data-item-id="${item.id}" title="Delete permanently"
+        style="color:var(--red-700);">${ICON_TRASH}</button>
     </div>
-    <div class="item-actions">${statusBtn}</div>
   </div>`;
 }
 
@@ -518,6 +629,7 @@ function handleAction(btn) {
     case 'save':       saveEdit(id); break;
     case 'deactivate': setItemStatus(id, false); break;
     case 'restore':    setItemStatus(id, true);  break;
+    case 'delete':     deleteItem(id); break;
   }
 }
 
@@ -558,7 +670,7 @@ async function saveEdit(itemId) {
       // Version was bumped — reload to show new version
       alert(`Saved. A new version (${result.new_version}) has been created to protect existing projects.`);
     }
-    await loadTemplate();
+    await reload(result);
   } catch (err) {
     alert('Error: ' + err.message);
     if (saveBtn) saveBtn.disabled = false;
@@ -576,9 +688,9 @@ function openDeleteVersionModal(versionId, versionName) {
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:24px;';
   modal.innerHTML = `
     <div class="card" style="width:100%;max-width:440px;">
-      <div class="card-header" style="border-left:4px solid var(--red-700);">
-        <h3 style="color:var(--red-700);">Delete Template Version</h3>
-        <button class="btn btn-ghost btn-sm" id="dv-close">✕</button>
+      <div class="card-header" style="background:var(--red-700);">
+        <h3 style="color:#fff;">Delete Template Version</h3>
+        <button class="btn btn-ghost btn-sm" id="dv-close" style="color:#fff;">✕</button>
       </div>
       <div class="card-body" style="display:flex;flex-direction:column;gap:16px;">
         <p style="font-size:14px;">You are about to permanently delete <strong>${api.fmt.escape(versionName)}</strong>
@@ -724,7 +836,7 @@ async function handleStageStatus(btn) {
     if (result.forked) {
       alert(`Done. A new version (${result.new_version}) has been created to preserve existing projects.`);
     }
-    await loadTemplate();
+    await reload(result);
   } catch (err) {
     alert('Error: ' + err.message);
     btn.disabled = false;
@@ -768,7 +880,7 @@ async function handleRenameStage(stageNum) {
     if (result.forked) {
       alert(`Saved. A new version (${result.new_version}) has been created to protect existing projects.`);
     }
-    await loadTemplate();
+    await reload(result);
   } catch (err) {
     alert('Error: ' + err.message);
     if (saveBtn) saveBtn.disabled = false;
@@ -823,9 +935,8 @@ function openAddStageModal() {
       close();
       if (result.forked) {
         alert(`Added. A new version (${result.new_version}) has been created to protect existing projects.`);
-        activeVersionId = result.new_version_id;
       }
-      await loadTemplate();
+      await reload(result);
     } catch (err) {
       errEl.textContent = err.message;
       errEl.classList.remove('hidden');
@@ -845,9 +956,8 @@ async function handleReorderStage(btn) {
     const result = await api.post(`/api/templates/${versionId}/stages/${stageNum}/reorder`, { direction });
     if (result.forked) {
       alert(`Reordered. A new version (${result.new_version}) has been created to protect existing projects.`);
-      activeVersionId = result.new_version_id;
     }
-    await loadTemplate();
+    await reload(result);
   } catch (err) {
     alert('Error: ' + err.message);
     btn.disabled = false;
@@ -867,9 +977,37 @@ async function setItemStatus(itemId, isActive) {
     if (result.forked) {
       alert(`Done. A new version (${result.new_version}) has been created.`);
     }
-    await loadTemplate();
+    await reload(result);
   } catch (err) {
     alert('Error: ' + err.message);
+  }
+}
+
+async function deleteItem(itemId) {
+  if (!confirm('Permanently delete this checklist item? This cannot be undone. (Items already used by a project can only be disabled, not deleted.)')) return;
+
+  const versionId = templateData.version_id;
+  try {
+    const result = await api.delete(`/api/templates/${versionId}/items/${itemId}`);
+    if (result.forked) {
+      alert(`Done. A new version (${result.new_version}) has been created to protect existing projects.`);
+    }
+    await reload(result);
+  } catch (err) {
+    alert('Could not delete: ' + err.message);
+  }
+}
+
+async function reorderItem(itemId, direction) {
+  const versionId = templateData.version_id;
+  try {
+    const result = await api.post(`/api/templates/${versionId}/items/${itemId}/reorder`, { direction });
+    if (result.forked) {
+      alert(`Reordered. A new version (${result.new_version}) has been created to protect existing projects.`);
+    }
+    await reload(result);
+  } catch (err) {
+    alert('Could not reorder: ' + err.message);
   }
 }
 
@@ -880,14 +1018,13 @@ async function handleAddItem(e) {
   errEl.classList.add('hidden');
 
   const stageNumber = parseInt(form.dataset.stage, 10);
-  const item_code   = form.elements.item_code.value.trim();
   const description = form.elements.description.value.trim();
   const pillar      = form.elements.pillar.value;
   const is_mandatory= form.elements.is_mandatory.value === '1';
   const guidance    = form.elements.guidance.value.trim() || null;
 
-  if (!item_code || !description) {
-    errEl.textContent = 'Item code and description are required.';
+  if (!description) {
+    errEl.textContent = 'Description is required.';
     errEl.classList.remove('hidden');
     return;
   }
@@ -896,9 +1033,10 @@ async function handleAddItem(e) {
   btn.disabled = true;
   try {
     await api.post(`/api/templates/${templateData.version_id}/items`, {
-      stage_number: stageNumber, item_code, description, guidance, pillar, is_mandatory,
+      stage_number: stageNumber, description, guidance, pillar, is_mandatory,
     });
-    await loadTemplate();
+    expandedAddItemPanels.add(stageNumber); // keep the panel open — they may add another
+    await reload();
   } catch (err) {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');
@@ -928,13 +1066,9 @@ function renderGateChainSection(stageNum, chain) {
     .filter(a => !chain.some(c => c.authority === a.value))
     .map(a => `<option value="${a.value}">${a.label}</option>`).join('');
 
-  return `<div class="gate-chain-config">
-    <div class="gate-chain-title"><span style="vertical-align:middle;margin-right:6px;">${api.icons.chainLink}</span>Gate Approver Chain
-      <span class="text-muted" style="font-size:12px;font-weight:400;margin-left:6px;">
-        who signs off at Stage ${stageNum} (in order)
-      </span>
-    </div>
-    <div style="margin:8px 0;">${chainHtml}</div>
+  // Title/subtitle are rendered by the collapsible wrapper (renderCollapsiblePanel)
+  // that calls this — just the chain content itself here.
+  return `<div style="margin:0 0 8px;">${chainHtml}</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       ${authOpts ? `
         <select id="gca-sel-${stageNum}" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);">
@@ -943,8 +1077,7 @@ function renderGateChainSection(stageNum, chain) {
         <button class="btn btn-ghost btn-sm gate-add-btn" data-stage="${stageNum}">+ Add to chain</button>` : ''}
       ${chain.length > 0 ? `<button class="btn btn-ghost btn-sm gate-clear-btn" data-stage="${stageNum}"
         style="color:var(--red-700);">Clear all</button>` : ''}
-    </div>
-  </div>`;
+    </div>`;
 }
 
 async function handleGateAdd(btn) {
@@ -961,7 +1094,7 @@ async function handleGateAdd(btn) {
     if (result.forked) {
       alert(`Chain saved. A new template version was created to protect existing projects.`);
     }
-    await loadTemplate();
+    await reload(result);
   } catch (err) {
     alert('Could not update chain: ' + err.message);
     btn.disabled = false;
@@ -977,13 +1110,14 @@ async function handleGateRemove(btn) {
       .filter(e => e.chain_position !== removedPos)
       .map(e => e.authority);
 
+    let result;
     if (newChain.length === 0) {
-      await api.delete(`/api/templates/${templateData.version_id}/gate-approvers/${stageNum}`);
+      result = await api.delete(`/api/templates/${templateData.version_id}/gate-approvers/${stageNum}`);
     } else {
-      await api.post(`/api/templates/${templateData.version_id}/gate-approvers`,
+      result = await api.post(`/api/templates/${templateData.version_id}/gate-approvers`,
         { stage_number: stageNum, chain: newChain });
     }
-    await loadTemplate();
+    await reload(result);
   } catch (err) {
     alert('Could not remove from chain: ' + err.message);
     btn.disabled = false;
@@ -996,7 +1130,7 @@ async function handleGateClear(btn) {
   btn.disabled = true;
   try {
     await api.delete(`/api/templates/${templateData.version_id}/gate-approvers/${stageNum}`);
-    await loadTemplate();
+    await reload();
   } catch (err) {
     alert('Could not clear chain: ' + err.message);
     btn.disabled = false;
