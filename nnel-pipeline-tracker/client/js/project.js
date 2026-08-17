@@ -93,7 +93,7 @@ async function renderProjectPresence() {
   if (!el) return;
   try {
     const users = await api.get(`/api/projects/${projectId}/presence`);
-    el.innerHTML = api.buildAvatarStack(users, { emptyText: 'No one else from the team is active right now' });
+    el.innerHTML = api.buildAvatarStack(users, { emptyText: '' });
   } catch {
     el.innerHTML = '<div class="text-sm text-muted">Could not load</div>';
   }
