@@ -24,7 +24,7 @@ async function getMemo(req, res, params) {
   if (user.system_role !== 'admin') {
     const member = await getProjectMember(projectId, user.id);
     if (!member || member.role !== 'project_lead') {
-      return sendError(res, 403, 'Forbidden — only Project Lead or Admin can export the memo');
+      return sendError(res, 403, 'Forbidden - only Project Lead or Admin can export the memo');
     }
   }
 

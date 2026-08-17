@@ -1,4 +1,4 @@
-/* users.js — User Management page (admin only) */
+/* users.js - User Management page (admin only) */
 'use strict';
 
 let currentUser  = null;
@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   api.initSidebar(currentUser);
 
-  // Password show/hide — delegate from document so it works inside modals
+  // Password show/hide - delegate from document so it works inside modals
   document.addEventListener('click', e => {
     const toggle = e.target.closest('.pw-toggle');
     if (!toggle) return;
@@ -168,7 +168,7 @@ async function resendInvite(userId, name, btn) {
 }
 
 // ---------------------------------------------------------------------------
-// Reactivating a deleted (deactivated) account — low stakes, fully
+// Reactivating a deleted (deactivated) account - low stakes, fully
 // reversible either way, so a plain confirm is enough here.
 // ---------------------------------------------------------------------------
 async function confirmActivate(userId, name) {
@@ -182,13 +182,13 @@ async function confirmActivate(userId, name) {
 }
 
 // ---------------------------------------------------------------------------
-// Delete user — same ceremony as deleting a project: explain what actually
+// Delete user - same ceremony as deleting a project: explain what actually
 // happens, require typing DELETE to confirm. Under the hood this is the
-// same is_active=0 the Activate button reverses — accounts are never hard-
+// same is_active=0 the Activate button reverses - accounts are never hard-
 // deleted, so audit_log, project_members, and every historical record that
 // references this user id stays intact and an admin can always undo it.
 // The server independently blocks deleting your own account (defence in
-// depth — this button is already hidden for isSelf, but the check lives
+// depth - this button is already hidden for isSelf, but the check lives
 // server-side regardless).
 // ---------------------------------------------------------------------------
 function showDeleteUserModal(userId, name) {
@@ -227,7 +227,7 @@ function showDeleteUserModal(userId, name) {
 
   modal.querySelector('#dum-close').addEventListener('click', close);
   modal.querySelector('#dum-cancel').addEventListener('click', close);
-  // Deliberately no click-outside-closes-modal — see setupUserModal for why.
+  // Deliberately no click-outside-closes-modal - see setupUserModal for why.
 
   confirmInput.addEventListener('input', () => {
     deleteBtn.disabled = confirmInput.value !== 'DELETE';
@@ -324,7 +324,7 @@ function openEditModal(userId, name, email, role, workstream, authority) {
   const authEl = document.getElementById('u-authority');
   if (authEl) authEl.value = authority || 'ss';
 
-  // Password field is not shown when editing — use Reset Password for that
+  // Password field is not shown when editing - use Reset Password for that
   const pwGroup = document.getElementById('password-group');
   pwGroup.classList.add('hidden');
   document.getElementById('u-password').required = false;

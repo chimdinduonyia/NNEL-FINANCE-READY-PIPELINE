@@ -162,7 +162,7 @@ async function resendInvite(req, res, params) {
   );
   if (!target) return sendError(res, 404, 'User not found');
   if (target.password_hash !== null) {
-    return sendError(res, 409, 'This account has already set a password — there is no pending invite to resend');
+    return sendError(res, 409, 'This account has already set a password - there is no pending invite to resend');
   }
 
   const { rawToken, tokenHash, expiresAt } = generateInviteToken();

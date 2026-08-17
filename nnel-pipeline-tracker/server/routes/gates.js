@@ -48,7 +48,7 @@ async function submit(req, res, params) {
 
   // SECURITY: permission check — only project_lead, stage must be in_progress
   if (!await canSubmitStage(user.id, user.system_role, projectId, stageNumber)) {
-    return sendError(res, 403, 'Forbidden — you must be the Project Lead and the stage must be in progress');
+    return sendError(res, 403, 'Forbidden - you must be the Project Lead and the stage must be in progress');
   }
 
   // Optional submission summary written by the Project Lead
@@ -132,12 +132,12 @@ async function recall(req, res, params) {
   const stage = await getStageState(projectId, stageNumber);
   if (!stage) return sendError(res, 404, 'Stage not found');
   if (stage.status !== 'submitted') {
-    return sendError(res, 409, 'Stage is not currently submitted — nothing to recall');
+    return sendError(res, 409, 'Stage is not currently submitted - nothing to recall');
   }
 
   // SECURITY: only the original submitter or admin may recall
   if (user.system_role !== 'admin' && stage.submitted_by !== user.id) {
-    return sendError(res, 403, 'Forbidden — only the person who submitted can recall this submission');
+    return sendError(res, 403, 'Forbidden - only the person who submitted can recall this submission');
   }
 
   // Block if any approver has already acted in the current review round
@@ -148,7 +148,7 @@ async function recall(req, res, params) {
   );
   if (Number(decisionCount) > 0) {
     return sendError(res, 409,
-      'A gate decision has already been recorded this round — the submission can no longer be recalled');
+      'A gate decision has already been recorded this round - the submission can no longer be recalled');
   }
 
   const conn = await pool.getConnection();
@@ -214,7 +214,7 @@ async function recordDecision(req, res, params) {
   // SECURITY: this call verifies role, stage state, segregation of duties,
   // and chain ordering — all in one server-side check
   if (!await canApproveGate(user.id, user.system_role, projectId, stageNumber)) {
-    return sendError(res, 403, 'Forbidden — check role, stage status, segregation of duties, and chain order');
+    return sendError(res, 403, 'Forbidden - check role, stage status, segregation of duties, and chain order');
   }
 
   // GOVERNANCE: all submitted documents must be reviewed (approved or returned)

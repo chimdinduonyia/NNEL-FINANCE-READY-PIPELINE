@@ -1,4 +1,4 @@
-/* templates.js — Template Editor page (admin only) */
+/* templates.js - Template Editor page (admin only) */
 'use strict';
 
 const PILLAR_OPTIONS = [
@@ -20,14 +20,15 @@ let editingItemId   = null;
 let editingStageNum = null; // stage_number currently being renamed inline, or null
 let currentUser     = null;
 let allVersions     = [];   // all template versions (refreshed on loadTemplate)
-let currentTechVersions = []; // versions for the active tech, as last rendered —
+let currentTechVersions = []; // versions for the active tech, as last rendered - 
                                // see renderTemplate()'s techVersions param default
 const expandedAddItemPanels   = new Set(); // stage_numbers with "+ Add item" panel open
 const expandedGateChainPanels = new Set(); // stage_numbers with "Gate Approver Chain" panel open
+const selectedItemIds = new Set(); // checklist item ids currently checked for bulk delete
 
-// Small icon set for item-row actions — kept here rather than api.icons
+// Small icon set for item-row actions - kept here rather than api.icons
 // since these are specific to this editor (eye/eye-off for disable/restore,
-// bin for delete, pencil for edit — all icons now, was three text buttons).
+// bin for delete, pencil for edit - all icons now, was three text buttons).
 const ICON_EYE = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1 7.5S3.5 3 7.5 3s6.5 4.5 6.5 4.5-2.5 4.5-6.5 4.5S1 7.5 1 7.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="7.5" cy="7.5" r="2" stroke="currentColor" stroke-width="1.3"/></svg>`;
 const ICON_EYE_OFF = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1 7.5S3.5 3 7.5 3s6.5 4.5 6.5 4.5-2.5 4.5-6.5 4.5S1 7.5 1 7.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="7.5" cy="7.5" r="2" stroke="currentColor" stroke-width="1.3"/><line x1="2" y1="13" x2="13" y2="2" stroke="currentColor" stroke-width="1.3" stroke-linecap="square"/></svg>`;
 const ICON_TRASH = `<svg width="13" height="13" viewBox="0 0 13 13" fill="none" style="vertical-align:middle;"><rect x="1" y="3" width="11" height="1.5" fill="currentColor" rx="0.5"/><rect x="4.5" y="1" width="4" height="1.5" fill="currentColor" rx="0.5"/><path d="M2.5 4.5L3 11.5H10L10.5 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="square" fill="none"/><line x1="6.5" y1="6" x2="6.5" y2="10" stroke="currentColor" stroke-width="1.3" stroke-linecap="square"/><line x1="4.5" y1="6" x2="4.5" y2="10" stroke="currentColor" stroke-width="1.3" stroke-linecap="square"/><line x1="8.5" y1="6" x2="8.5" y2="10" stroke="currentColor" stroke-width="1.3" stroke-linecap="square"/></svg>`;
@@ -48,7 +49,7 @@ const GATE_AUTH_OPTIONS = [
   { value: 'm4_ed_cam',  label: 'M4: ED-CAM' },
 ];
 const GATE_AUTH_LABEL = Object.fromEntries(GATE_AUTH_OPTIONS.map(a => [a.value, a.label]));
-// CHANGED 2026-08-17: CAPEX-threshold routing removed (see DOA_SPEC.md) — every
+// CHANGED 2026-08-17: CAPEX-threshold routing removed (see DOA_SPEC.md) - every
 // stage 0-5 is now an admin-configurable gate-approver chain, same as the rest.
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -71,7 +72,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// loadTemplate — fetches version list for the active technology, renders the
+// loadTemplate - fetches version list for the active technology, renders the
 // version history panel, then opens the active version (or the last selected).
 async function loadTemplate() {
   const el = document.getElementById('template-content');
@@ -103,7 +104,7 @@ async function loadTemplate() {
 // Refreshes the editor after a mutation, without the full-page reload/
 // flicker that re-fetching the whole version list (loadTemplate) causes.
 // Most edits (save an item, toggle a status, reorder, gate-chain changes)
-// stay on the same version — loadVersion(activeVersionId) re-fetches just
+// stay on the same version - loadVersion(activeVersionId) re-fetches just
 // that version's items/gate-config, reusing the already-cached version list
 // instead of hitting GET /api/templates again. Only a genuine fork (a new
 // version was just created to protect in-flight projects) needs the fuller
@@ -115,6 +116,16 @@ async function reload(result) {
   } else {
     await loadVersion(activeVersionId);
   }
+}
+
+// Picks the right explanation for why a fork just happened, based on the
+// version that was open when the action was taken (call this BEFORE
+// reload() swaps templateData out for the new one). Two independent
+// triggers for a fork - see forkIfNeeded() server-side.
+function forkReasonText() {
+  return templateData?.is_immutable
+    ? "created as a new draft, since this is a standard template that can't be edited directly"
+    : 'created to protect existing projects using it';
 }
 
 async function loadVersion(versionId, el, techVersions) {
@@ -150,7 +161,7 @@ function wireCreateVersionBtn(el) {
 
 // ---------------------------------------------------------------------------
 // techVersions defaults to the last-loaded list (currentTechVersions) rather
-// than an empty array — several call sites re-render after a purely local
+// than an empty array - several call sites re-render after a purely local
 // UI change (cancel an inline edit, close a row) and don't have a fresh
 // version list handy. Passing [] there used to blank the whole Version
 // History pane even though nothing about the versions actually changed.
@@ -158,18 +169,21 @@ function renderTemplate(el, techVersions = currentTechVersions) {
   const d = templateData;
   const hasProjects = d.project_count > 0;
 
-  const bannerClass = d.is_draft ? 'draft' : (hasProjects ? 'warn' : 'safe');
-  const bannerMsg   = d.is_draft
-    ? `<strong>Draft</strong> — not visible in the "+ New Project" template picker yet. Make all the changes you
+  const bannerClass = d.is_immutable ? 'immutable' : d.is_draft ? 'draft' : (hasProjects ? 'warn' : 'safe');
+  const bannerMsg   = d.is_immutable
+    ? `<strong>🔒 Standard template</strong> - this original version can't be edited directly. Any change
+       (add, edit, delete, reorder) creates a new draft automatically, leaving this one untouched.`
+    : d.is_draft
+    ? `<strong>Draft</strong> - not visible in the "+ New Project" template picker yet. Make all the changes you
        need, then publish when it's ready.`
     : hasProjects
     ? `<strong>${d.project_count} active project${d.project_count > 1 ? 's' : ''}</strong> using <strong>${api.fmt.escape(d.name || d.version)}</strong>.
        Saving any change will create a new version. Existing projects are unaffected.`
     : `<strong>${api.fmt.escape(d.name || d.version)}</strong> · No active projects yet. Changes apply directly to this version.`;
 
-  // Global Publish button, top right of the whole page — only while a draft
+  // Global Publish button, top right of the whole page - only while a draft
   // is open. Publishing only makes it selectable (see DRAFT/PUBLISH note in
-  // server/routes/templates.js) — it does not also set it active.
+  // server/routes/templates.js) - it does not also set it active.
   const headerActionsEl = document.getElementById('editor-header-actions');
   if (headerActionsEl) {
     headerActionsEl.innerHTML = d.is_draft
@@ -178,10 +192,10 @@ function renderTemplate(el, techVersions = currentTechVersions) {
     headerActionsEl.querySelector('#publish-draft-btn')?.addEventListener('click', handlePublishDraft);
   }
 
-  // Version history panel — drafts and published versions grouped under
+  // Version history panel - drafts and published versions grouped under
   // their own headings, so it's obvious at a glance which versions are
   // still work-in-progress (no "Publish" button shows for anything already
-  // published — including versions that predate the draft/publish feature
+  // published - including versions that predate the draft/publish feature
   // and were backfilled to published so nothing already in use disappeared).
   const drafts    = techVersions.filter(v => v.is_draft);
   const published = techVersions.filter(v => !v.is_draft);
@@ -194,11 +208,13 @@ function renderTemplate(el, techVersions = currentTechVersions) {
     const isActive = v.is_active;
 
     // Bin icon: visible to the creator of this version, or to any admin.
-    // Active versions are blocked server-side — shown here but the modal will
-    // display the server's error if they attempt to delete an active version.
-    const canDelete =
+    // Never shown for an immutable standard template — server always
+    // rejects deleting one, so don't offer a button that can only error.
+    // Active versions are blocked server-side too - shown here but the modal
+    // will display the server's error if they attempt to delete an active version.
+    const canDelete = !v.is_immutable && (
       currentUser?.system_role === 'admin' ||
-      (currentUser?.system_role === 'project_manager' && v.created_by === currentUser?.id);
+      (currentUser?.system_role === 'project_manager' && v.created_by === currentUser?.id));
 
     const binSvg = `<svg width="13" height="13" viewBox="0 0 13 13" fill="none" style="vertical-align:middle;">
       <rect x="1" y="3" width="11" height="1.5" fill="currentColor" rx="0.5"/>
@@ -215,6 +231,7 @@ function renderTemplate(el, techVersions = currentTechVersions) {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;min-width:0;">
           <span style="font-weight:700;font-size:13px;">${api.fmt.escape(v.name || v.version)}</span>
+          ${v.is_immutable ? '<span class="badge badge-blue" style="font-size:10px;" title="Original standard template - edits fork a new draft">🔒 Standard</span>' : ''}
           ${v.is_draft ? '<span class="badge badge-amber" style="font-size:10px;">Draft</span>' : ''}
           ${isActive ? '<span class="badge badge-green" style="font-size:10px;">Active</span>' : ''}
           ${isOpen   ? '<span class="badge badge-blue" style="font-size:10px;">Editing</span>' : ''}
@@ -238,6 +255,21 @@ function renderTemplate(el, techVersions = currentTechVersions) {
     renderStage(s, gateConfig[s.stage_number] ?? [], i === 0, i === d.stages.length - 1)
   ).join('');
 
+  // Prune any selected ids that no longer exist in the freshly-loaded data
+  // (e.g. after a delete/reorder elsewhere), so the bulk-action bar's count
+  // never lags reality.
+  const allItemIds = new Set(d.stages.flatMap(s => s.items.map(i => i.id)));
+  for (const id of selectedItemIds) { if (!allItemIds.has(id)) selectedItemIds.delete(id); }
+
+  const bulkBarHtml = selectedItemIds.size > 0 ? `
+    <div class="flex items-center justify-between" style="background:var(--gray-900);color:#fff;padding:10px 16px;border-radius:var(--radius);margin-bottom:16px;">
+      <span style="font-size:13px;font-weight:600;">${selectedItemIds.size} item${selectedItemIds.size > 1 ? 's' : ''} selected</span>
+      <div class="flex gap-8">
+        <button class="btn btn-ghost btn-sm" id="bulk-clear-btn" style="color:#fff;">Clear</button>
+        <button class="btn btn-danger btn-sm" id="bulk-delete-btn">Delete Selected</button>
+      </div>
+    </div>` : '';
+
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:260px 1fr;gap:0;align-items:start;">
       <div style="border-right:1px solid var(--border);min-height:400px;">
@@ -249,11 +281,12 @@ function renderTemplate(el, techVersions = currentTechVersions) {
       </div>
       <div style="padding:0 0 0 20px;">
         <div class="version-banner ${bannerClass}" style="margin-bottom:16px;">ℹ️ ${bannerMsg}</div>
+        ${bulkBarHtml}
     ${stagesHtml}
         <div style="margin:16px 0 24px;">
           <button class="btn btn-ghost btn-sm" id="add-stage-btn">+ Add Stage</button>
           <span class="text-muted text-sm" style="margin-left:8px;">
-            Appended after Stage ${stageNumbers[stageNumbers.length - 1] ?? 0} — stage numbers stay a stable
+            Appended after Stage ${stageNumbers[stageNumbers.length - 1] ?? 0} - stage numbers stay a stable
             anchor, so a new stage always goes at the end (reorder it afterwards if needed).
           </span>
         </div>
@@ -294,7 +327,7 @@ function renderTemplate(el, techVersions = currentTechVersions) {
   // Wire up + New version button
   el.querySelector('#create-version-btn')?.addEventListener('click', openCreateVersionModal);
 
-  // Wire up accordions (click anywhere on header except buttons/inputs —
+  // Wire up accordions (click anywhere on header except buttons/inputs - 
   // the rename control lives inside the header, so a click to edit the
   // title must not also toggle the section open/closed)
   el.querySelectorAll('.stage-header').forEach(h => {
@@ -315,7 +348,7 @@ function renderTemplate(el, techVersions = currentTechVersions) {
     btn.addEventListener('click', () => {
       editingStageNum = parseInt(btn.dataset.stage, 10);
       renderTemplate(el);
-      // innerHTML-injected `autofocus` is unreliable across browsers — focus explicitly
+      // innerHTML-injected `autofocus` is unreliable across browsers - focus explicitly
       el.querySelector(`.stage-name-input[data-stage="${editingStageNum}"]`)?.focus();
     });
   });
@@ -353,8 +386,33 @@ function renderTemplate(el, techVersions = currentTechVersions) {
     btn.addEventListener('click', () => reorderItem(parseInt(btn.dataset.itemId, 10), btn.dataset.dir));
   });
 
+  // Wire up multi-select: per-item checkboxes, per-stage "select all", and
+  // the bulk-action bar's Clear/Delete buttons.
+  el.querySelectorAll('.item-select-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = parseInt(cb.dataset.itemId, 10);
+      if (cb.checked) selectedItemIds.add(id); else selectedItemIds.delete(id);
+      renderTemplate(el);
+    });
+  });
+  el.querySelectorAll('.select-all-in-stage').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const stageNum = parseInt(cb.dataset.stage, 10);
+      const stage = templateData.stages.find(s => s.stage_number === stageNum);
+      (stage?.items ?? []).filter(i => i.is_active).forEach(i => {
+        if (cb.checked) selectedItemIds.add(i.id); else selectedItemIds.delete(i.id);
+      });
+      renderTemplate(el);
+    });
+  });
+  el.querySelector('#bulk-clear-btn')?.addEventListener('click', () => {
+    selectedItemIds.clear();
+    renderTemplate(el);
+  });
+  el.querySelector('#bulk-delete-btn')?.addEventListener('click', handleBulkDelete);
+
   // Wire up the "+ Add item to Stage X" / "Gate Approver Chain" collapsible
-  // headers — toggle open state, remember it per stage so it survives the
+  // headers - toggle open state, remember it per stage so it survives the
   // next lightweight reload().
   el.querySelectorAll('.add-item-toggle').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -396,8 +454,8 @@ function renderStage(stage, chain = [], isFirst = false, isLast = false) {
   const inactiveItems = stage.items.filter(i => !i.is_active);
   const allItems      = [...activeItems, ...inactiveItems];
 
-  // Reorder (^v) is scoped to each item's own (stage, pillar) group — item
-  // codes renumber within that group, not across the whole stage — so
+  // Reorder (^v) is scoped to each item's own (stage, pillar) group - item
+  // codes renumber within that group, not across the whole stage - so
   // first/last-in-group has to be computed per pillar, not per stage.
   const groupPositions = {}; // item.id -> { isFirstInGroup, isLastInGroup }
   const byPillarForOrder = {};
@@ -477,8 +535,8 @@ function renderStage(stage, chain = [], isFirst = false, isLast = false) {
     </div>
     ${deactivatedBanner}
     <div class="stage-body">
-      <div style="display:grid;grid-template-columns:34px 100px 1fr 90px 68px 96px;gap:8px;padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;">
-        <div></div><div>Code</div><div>Description</div><div>Pillar</div><div>Mandatory</div><div>Actions</div>
+      <div style="display:grid;grid-template-columns:22px 34px 100px 1fr 90px 68px 96px;gap:8px;padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;">
+        <div><input type="checkbox" class="select-all-in-stage" data-stage="${stage.stage_number}" title="Select all in Stage ${stage.stage_number}" style="width:auto;margin:0;"></div><div></div><div>Code</div><div>Description</div><div>Pillar</div><div>Mandatory</div><div>Actions</div>
       </div>
       ${rowsHtml || '<div style="padding:16px;color:var(--text-muted);font-size:13px;">No items yet.</div>'}
     </div>
@@ -532,7 +590,7 @@ function renderStage(stage, chain = [], isFirst = false, isLast = false) {
 
 // ---------------------------------------------------------------------------
 // Shared collapsible-section shell used for "+ Add item to Stage X" and
-// "Gate Approver Chain" — click the header to expand/collapse. State is
+// "Gate Approver Chain" - click the header to expand/collapse. State is
 // tracked per-stage in expandedAddItemPanels/expandedGateChainPanels (see
 // top of file) so it survives the lightweight reload() after a save.
 // ---------------------------------------------------------------------------
@@ -564,6 +622,7 @@ function renderItemRow(item, groupPos = { isFirstInGroup: true, isLastInGroup: t
     ).join('');
 
     return `<div class="${cls}" data-item-id="${item.id}">
+      <div></div>
       <div></div>
       <div class="item-code">${api.fmt.escape(item.item_code)}</div>
       <div>
@@ -601,7 +660,9 @@ function renderItemRow(item, groupPos = { isFirstInGroup: true, isLastInGroup: t
       style="padding:0 4px;line-height:1;font-size:9px;${groupPos.isLastInGroup ? 'opacity:.3;' : ''}">▼</button>
   </span>`;
 
+  const canSelect = item.is_active; // disabled items can't be bulk-deleted anyway once used; keep the checkbox scoped to active rows for simplicity
   return `<div class="${cls}" data-item-id="${item.id}">
+    <div>${canSelect ? `<input type="checkbox" class="item-select-cb" data-item-id="${item.id}" ${selectedItemIds.has(item.id) ? 'checked' : ''} style="width:auto;margin:0;">` : ''}</div>
     <div>${reorderBtns}</div>
     <div class="item-code">${api.fmt.escape(item.item_code)}</div>
     <div class="item-desc" title="${api.fmt.escape(item.guidance ?? '')}">${descHtml}</div>
@@ -667,8 +728,8 @@ async function saveEdit(itemId) {
     editingItemId = null;
 
     if (result.forked) {
-      // Version was bumped — reload to show new version
-      alert(`Saved. A new version (${result.new_version}) has been created to protect existing projects.`);
+      // Version was bumped - reload to show new version
+      alert(`Saved. New version ${result.new_version} ${forkReasonText()}.`);
     }
     await reload(result);
   } catch (err) {
@@ -846,7 +907,7 @@ async function handleStageStatus(btn) {
 async function handlePublishDraft() {
   if (!confirm(
     'Publish this draft?\n\nIt will become selectable in the "+ New Project" template picker. ' +
-    'It will NOT automatically become the active/default template for this vertical — use ' +
+    'It will NOT automatically become the active/default template for this vertical - use ' +
     '"Set as Active" separately if you want that.'
   )) return;
 
@@ -878,7 +939,7 @@ async function handleRenameStage(stageNum) {
     const result = await api.patch(`/api/templates/${versionId}/stages/${stageNum}/name`, { name });
     editingStageNum = null;
     if (result.forked) {
-      alert(`Saved. A new version (${result.new_version}) has been created to protect existing projects.`);
+      alert(`Saved. New version ${result.new_version} ${forkReasonText()}.`);
     }
     await reload(result);
   } catch (err) {
@@ -934,7 +995,7 @@ function openAddStageModal() {
       const result = await api.post(`/api/templates/${templateData.version_id}/stages`, { name });
       close();
       if (result.forked) {
-        alert(`Added. A new version (${result.new_version}) has been created to protect existing projects.`);
+        alert(`Added. New version ${result.new_version} ${forkReasonText()}.`);
       }
       await reload(result);
     } catch (err) {
@@ -955,7 +1016,7 @@ async function handleReorderStage(btn) {
   try {
     const result = await api.post(`/api/templates/${versionId}/stages/${stageNum}/reorder`, { direction });
     if (result.forked) {
-      alert(`Reordered. A new version (${result.new_version}) has been created to protect existing projects.`);
+      alert(`Reordered. New version ${result.new_version} ${forkReasonText()}.`);
     }
     await reload(result);
   } catch (err) {
@@ -975,7 +1036,7 @@ async function setItemStatus(itemId, isActive) {
       { is_active: isActive }
     );
     if (result.forked) {
-      alert(`Done. A new version (${result.new_version}) has been created.`);
+      alert(`Done. New version ${result.new_version} ${forkReasonText()}.`);
     }
     await reload(result);
   } catch (err) {
@@ -990,7 +1051,7 @@ async function deleteItem(itemId) {
   try {
     const result = await api.delete(`/api/templates/${versionId}/items/${itemId}`);
     if (result.forked) {
-      alert(`Done. A new version (${result.new_version}) has been created to protect existing projects.`);
+      alert(`Done. New version ${result.new_version} ${forkReasonText()}.`);
     }
     await reload(result);
   } catch (err) {
@@ -1003,11 +1064,34 @@ async function reorderItem(itemId, direction) {
   try {
     const result = await api.post(`/api/templates/${versionId}/items/${itemId}/reorder`, { direction });
     if (result.forked) {
-      alert(`Reordered. A new version (${result.new_version}) has been created to protect existing projects.`);
+      alert(`Reordered. New version ${result.new_version} ${forkReasonText()}.`);
     }
     await reload(result);
   } catch (err) {
     alert('Could not reorder: ' + err.message);
+  }
+}
+
+async function handleBulkDelete() {
+  const ids = [...selectedItemIds];
+  if (ids.length === 0) return;
+  if (!confirm(
+    `Permanently delete ${ids.length} selected item${ids.length > 1 ? 's' : ''}? This cannot be undone. ` +
+    `(If any of them have already been used by a project, none will be deleted - disable those instead.)`
+  )) return;
+
+  const btn = document.getElementById('bulk-delete-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const result = await api.post(`/api/templates/${templateData.version_id}/items/bulk-delete`, { item_ids: ids });
+    if (result.forked) {
+      alert(`Deleted ${result.count} items. New version ${result.new_version} ${forkReasonText()}.`);
+    }
+    selectedItemIds.clear();
+    await reload(result);
+  } catch (err) {
+    alert('Could not delete selected items: ' + err.message);
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1032,11 +1116,14 @@ async function handleAddItem(e) {
   const btn = form.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
-    await api.post(`/api/templates/${templateData.version_id}/items`, {
+    const result = await api.post(`/api/templates/${templateData.version_id}/items`, {
       stage_number: stageNumber, description, guidance, pillar, is_mandatory,
     });
-    expandedAddItemPanels.add(stageNumber); // keep the panel open — they may add another
-    await reload();
+    if (result.forked) {
+      alert(`Added. A new draft (${result.new_version}) has been created since this is a standard template - it can't be edited directly.`);
+    }
+    expandedAddItemPanels.add(stageNumber); // keep the panel open - they may add another
+    await reload(result);
   } catch (err) {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');
@@ -1067,7 +1154,7 @@ function renderGateChainSection(stageNum, chain) {
     .map(a => `<option value="${a.value}">${a.label}</option>`).join('');
 
   // Title/subtitle are rendered by the collapsible wrapper (renderCollapsiblePanel)
-  // that calls this — just the chain content itself here.
+  // that calls this - just the chain content itself here.
   return `<div style="margin:0 0 8px;">${chainHtml}</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       ${authOpts ? `
@@ -1129,8 +1216,11 @@ async function handleGateClear(btn) {
   if (!confirm(`Clear the Gate ${stageNum} approver chain? It will revert to system defaults.`)) return;
   btn.disabled = true;
   try {
-    await api.delete(`/api/templates/${templateData.version_id}/gate-approvers/${stageNum}`);
-    await reload();
+    const result = await api.delete(`/api/templates/${templateData.version_id}/gate-approvers/${stageNum}`);
+    if (result.forked) {
+      alert(`Cleared. New version ${result.new_version} ${forkReasonText()}.`);
+    }
+    await reload(result);
   } catch (err) {
     alert('Could not clear chain: ' + err.message);
     btn.disabled = false;

@@ -1,7 +1,7 @@
-/* project.js — single project view */
+/* project.js - single project view */
 'use strict';
 
-// Populated from project.stages once the project loads (loadProject()) —
+// Populated from project.stages once the project loads (loadProject()) - 
 // stage titles are editable per template version in the template editor now
 // (template_stages), not a fixed array. Indexed by stage_number, same as
 // before, so every STAGE_NAMES[n] call site below is unchanged.
@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   api.initSidebar(currentUser);
 
-  // Project actions (⋮) menu — attached once here, not inside renderHeader
+  // Project actions (⋮) menu - attached once here, not inside renderHeader
   // (which reruns on every reload), so it never stacks up duplicate listeners.
   document.addEventListener('click', (e) => {
     const dropdown = document.getElementById('project-actions-dropdown');
@@ -100,7 +100,7 @@ async function loadProject() {
   loadTab(activeTab);
 }
 
-// Who from this project's team is active right now — scoped to project
+// Who from this project's team is active right now - scoped to project
 // members only (see server/routes/projects.js getProjectPresence).
 async function renderProjectPresence() {
   const el = document.getElementById('project-presence-stack');
@@ -113,7 +113,7 @@ async function renderProjectPresence() {
   }
 }
 
-// ---- Project brief — quick fact strip shown above the stepper -------------
+// ---- Project brief - quick fact strip shown above the stepper -------------
 function renderProjectBrief() {
   const el   = document.getElementById('project-brief');
   const grid = document.getElementById('brief-grid');
@@ -125,10 +125,10 @@ function renderProjectBrief() {
 
   const items = [
     ['Project Name',  api.fmt.escape(project.name.toUpperCase())],
-    ['Vertical',      api.fmt.escape(project.technology || '—')],
+    ['Vertical',      api.fmt.escape(project.technology || ' - ')],
     ['Project Value', capexValue],
-    ['Capacity',      api.fmt.escape(project.capacity || '—')],
-    ['Location',      api.fmt.escape(project.location || '—')],
+    ['Capacity',      api.fmt.escape(project.capacity || ' - ')],
+    ['Location',      api.fmt.escape(project.location || ' - ')],
   ];
 
   grid.innerHTML = items.map(([label, value]) => `
@@ -146,7 +146,7 @@ function renderHeader() {
   const el = document.getElementById('project-header');
   document.getElementById('project-name').textContent = project.name.toUpperCase();
   // Vertical + CAPEX now live in the Project Brief strip below, so they're
-  // not repeated here — this row is just status (+ the At Risk flag, which
+  // not repeated here - this row is just status (+ the At Risk flag, which
   // isn't shown anywhere else).
   document.getElementById('project-meta').innerHTML = [
     api.fmt.statusBadge(project.status),
@@ -222,7 +222,7 @@ function renderPipelineStrip() {
       const title = s.status === 'approved'
         ? `View Stage ${s.stage_number} history`
         : s.status === 'not_started'
-          ? `Locked — preview Stage ${s.stage_number} requirements`
+          ? `Locked - preview Stage ${s.stage_number} requirements`
           : s.stage_number === project.current_stage
             ? 'Current stage'
             : '';
@@ -259,11 +259,11 @@ function renderPipelineStrip() {
   document.getElementById('tabs-bar').style.display = 'block';
 }
 
-// No horizontal scroll — the »/« buttons shift the strip left/right one
+// No horizontal scroll - the »/« buttons shift the strip left/right one
 // stage at a time via a CSS transform, clicking repeatedly (or holding
 // through it) until the far-right stage comes into view. Buttons use
 // .onclick assignment rather than addEventListener since they're static
-// elements re-wired on every render — that overwrites the previous handler
+// elements re-wired on every render - that overwrites the previous handler
 // instead of stacking a new one each time.
 function setupStageNav(stripEl) {
   const viewportEl = document.querySelector('.stage-strip-viewport');
@@ -272,7 +272,7 @@ function setupStageNav(stripEl) {
   if (!viewportEl || !leftBtn || !rightBtn) return;
 
   // clientWidth includes the viewport's own left/right padding (the side
-  // allowance the nav buttons sit in) — subtract it to compare like-for-like
+  // allowance the nav buttons sit in) - subtract it to compare like-for-like
   // against the strip's natural width.
   const viewportStyle = getComputedStyle(viewportEl);
   const sidePadding   = parseFloat(viewportStyle.paddingLeft) + parseFloat(viewportStyle.paddingRight);
@@ -309,7 +309,7 @@ function setupStageNav(stripEl) {
 }
 
 // Switch to history snapshot for an approved/decided stage. Tabs stay
-// visible and functional (Documents/Audit/RACI/Team aren't stage-scoped —
+// visible and functional (Documents/Audit/RACI/Team aren't stage-scoped - 
 // see loadTab()); Checklist/Gate Decision render the read-only snapshot
 // for this stage instead of the live editor.
 function switchToHistoryView(stageNumber) {
@@ -320,7 +320,7 @@ function switchToHistoryView(stageNumber) {
     node.classList.toggle('selected', parseInt(node.dataset.stage, 10) === stageNumber);
   });
 
-  // Clicking a stage node means "show me this stage" — jump to the
+  // Clicking a stage node means "show me this stage" - jump to the
   // Checklist tab unless already on a stage-scoped tab.
   if (activeTab !== 'checklist' && activeTab !== 'gate') activeTab = 'checklist';
   renderTabs();
@@ -341,7 +341,7 @@ function switchToWorkingView() {
 }
 
 // dot content: tick for approved, cross for rejected, a padlock for
-// not_started (locked — nothing to work on yet), and the stage number
+// not_started (locked - nothing to work on yet), and the stage number
 // itself for anything currently active (in_progress/submitted/conditional).
 function stageIcon(status, stageNumber) {
   const tick = `<svg width="14" height="12" viewBox="0 0 13 11" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -457,7 +457,7 @@ function canManageTeam() {
   if (currentUser?.system_role !== 'project_manager') return false;
   return project.created_by === currentUser.id || isProjectLead();
 }
-// Used only for workstream lookup in renderChecklist — kept separate from isGateApprover/isProjectLead
+// Used only for workstream lookup in renderChecklist - kept separate from isGateApprover/isProjectLead
 function myMembership() {
   return project.members.find(m => m.user_id === currentUser.id) ?? null;
 }
@@ -532,7 +532,7 @@ async function renderChecklist(el) {
     </div>`;
   }).join('');
 
-  // Banner shown when items were disabled in the template — items themselves are never rendered
+  // Banner shown when items were disabled in the template - items themselves are never rendered
   const allDeactivated  = deactivatedCount > 0 && items.length === 0;
   const someDeactivated = deactivatedCount > 0 && items.length > 0;
 
@@ -559,7 +559,7 @@ async function renderChecklist(el) {
         </div>`
       : '';
 
-  // Submit panel — includes a summary textarea the PL fills in before submitting
+  // Submit panel - includes a summary textarea the PL fills in before submitting
   const submitHtml = isProjectLead() && stageOpen ? `
     <div class="add-form" style="margin-top:24px;">
       <h4>Submit Stage ${stageNum} for Gate Review</h4>
@@ -587,7 +587,7 @@ async function renderChecklist(el) {
       </div>
     </div>` : '';
 
-  // Recall panel — shown to the original submitter (or admin) while the stage
+  // Recall panel - shown to the original submitter (or admin) while the stage
   // is still 'submitted' and no approver has acted yet. Cleared server-side once
   // any decision is recorded.
   const canRecall = stage?.status === 'submitted'
@@ -602,7 +602,7 @@ async function renderChecklist(el) {
     </div>
     <div id="recall-error" class="error-msg hidden" style="margin-top:6px;"></div>` : '';
 
-  // Stage documents section — upload during in_progress, view when submitted/beyond
+  // Stage documents section - upload during in_progress, view when submitted/beyond
   const stageDocsHtml = renderStageDocs(stageDocs, stageNum, false, stageOpen);
 
   const checklistBody = allDeactivated
@@ -654,7 +654,7 @@ async function renderChecklist(el) {
     });
   });
 
-  // Wire up submit button — includes the summary in the POST body
+  // Wire up submit button - includes the summary in the POST body
   const submitBtn = el.querySelector('#submit-stage-btn');
   if (submitBtn) {
     submitBtn.addEventListener('click', async () => {
@@ -691,7 +691,7 @@ async function renderChecklist(el) {
   }
 }
 
-// outsideWs: item belongs to a different workstream — visible but locked for contributors
+// outsideWs: item belongs to a different workstream - visible but locked for contributors
 function renderChecklistItem(item, stageNum, editable, outsideWs = false) {
   const outerClass = [
     'checklist-item',
@@ -734,7 +734,7 @@ async function handleCheckToggle(cb, stageNum) {
     const itemEl   = cb.closest('.checklist-item');
     const itemCode = itemEl?.querySelector('.item-code')?.textContent ?? '';
     const itemDesc = itemEl?.querySelector('.item-desc')?.textContent ?? '';
-    // Any reference documents are already saved by this point — each row in
+    // Any reference documents are already saved by this point - each row in
     // the modal posts itself individually (see showEvidenceModal).
     const result = await showEvidenceModal({ itemCode, itemDesc, stageNum });
     if (result.cancelled) { cb.checked = false; return; }
@@ -757,7 +757,7 @@ async function handleCheckToggle(cb, stageNum) {
 }
 
 // Edit the evidence note on an item that's already checked (no document
-// re-attachment forced — the modal still offers it as optional).
+// re-attachment forced - the modal still offers it as optional).
 async function handleEvidenceEdit(btn) {
   const itemId   = btn.dataset.item;
   const stageNum = parseInt(btn.dataset.stage, 10);
@@ -789,19 +789,19 @@ async function handleEvidenceEdit(btn) {
 // sit at the bottom of the checklist page.
 // ===========================================================================
 // Documents attached to an evidence note: any number, each rendered as its
-// own row (Title / File Reference / VDR Folder / remove). Starts empty —
+// own row (Title / File Reference / VDR Folder / remove). Starts empty - 
 // attaching a document is still optional, it's just no longer capped at one.
 let evDocRowSeq = 0; // unique id per row, so rows can be removed individually
 
 // Each document row saves itself immediately (its own "Save" button posts
 // straight to /api/projects/:id/documents and locks the row) rather than
-// waiting for the whole modal to be submitted — so attaching evidence
+// waiting for the whole modal to be submitted - so attaching evidence
 // doesn't get lost if the note itself takes longer to write, and so a row
 // half-filled and forgotten can't silently slip into the note save. The
 // modal's own Save button only handles the evidence-note text; it refuses
 // to proceed if any row is filled in but hasn't been individually saved.
 // Documents already saved this way stay saved even if the modal is then
-// Cancelled — Cancel only discards the note text, not documents already
+// Cancelled - Cancel only discards the note text, not documents already
 // committed to the server.
 function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) {
   return new Promise((resolve) => {
@@ -819,7 +819,7 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
           <button class="btn btn-ghost btn-sm" id="ev-close">✕</button>
         </div>
         <div class="card-body" style="display:flex;flex-direction:column;gap:16px;">
-          <div class="text-sm text-muted">${api.fmt.escape(itemCode)} — ${api.fmt.escape(itemDesc)}</div>
+          <div class="text-sm text-muted">${api.fmt.escape(itemCode)} - ${api.fmt.escape(itemDesc)}</div>
 
           <div class="form-group">
             <label>Evidence note <span class="form-hint">(describe how this item is satisfied)</span></label>
@@ -829,7 +829,7 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
           <hr class="divider">
 
           <div class="flex items-center justify-between">
-            <label style="margin:0;">Reference documents <span class="form-hint">(optional, any number — each saves separately)</span></label>
+            <label style="margin:0;">Reference documents <span class="form-hint">(optional, any number - each saves separately)</span></label>
             <button type="button" class="btn btn-ghost btn-sm" id="ev-doc-add">+ Add Document</button>
           </div>
           <div id="ev-doc-rows" style="display:flex;flex-direction:column;gap:12px;"></div>
@@ -879,7 +879,7 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
 
       row.querySelector('.ev-doc-remove').addEventListener('click', async () => {
         if (row.dataset.saved === 'true') {
-          // Already persisted — removing it means actually deleting it.
+          // Already persisted - removing it means actually deleting it.
           if (!confirm('This document was already saved. Remove it permanently?')) return;
           try {
             await api.delete(`/api/projects/${projectId}/documents/${row.dataset.docId}`);
@@ -956,7 +956,7 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
       errEl.classList.add('hidden');
 
       // Refuse to proceed if any row has content but was never individually
-      // saved — silently dropping a filled-in document would be worse than
+      // saved - silently dropping a filled-in document would be worse than
       // asking the user to either save or remove it first.
       for (const row of rowsEl.querySelectorAll('.ev-doc-row')) {
         if (row.dataset.saved === 'true') continue;
@@ -964,7 +964,7 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
         const fileRef = row.querySelector('.ev-doc-fileref').value.trim();
         const folder  = row.querySelector('.ev-doc-folder').value;
         if (title || fileRef || folder) {
-          errEl.textContent = 'You have a document that hasn’t been saved yet — click "Save Document" on it (or Remove it) first.';
+          errEl.textContent = 'You have a document that hasn’t been saved yet - click "Save Document" on it (or Remove it) first.';
           errEl.classList.remove('hidden');
           return;
         }
@@ -1038,7 +1038,7 @@ async function renderGate(el) {
       <div style="font-size:13px;color:var(--gray-700);line-height:1.55;white-space:pre-wrap;">${api.fmt.escape(stageData.submission_summary)}</div>` : ''}
   </div>`);
 
-  // Stage documents — only the gate approver(s) in the required chain may approve/return
+  // Stage documents - only the gate approver(s) in the required chain may approve/return
   if (stageDocs.length > 0 || stage?.status === 'submitted') {
     const myAuthorities = project.members
       .filter(m => m.user_id === currentUser?.id && m.role === 'gate_approver')
@@ -1067,7 +1067,7 @@ async function renderGate(el) {
     parts.push(renderConditionsList(conditions, stageNum, canClose));
   }
 
-  // Past decisions — shown as a chain with step indicators when multiple approvers
+  // Past decisions - shown as a chain with step indicators when multiple approvers
   if (decisions.length > 0) {
     parts.push(`<div>
       <h4 style="font-size:14px;font-weight:700;margin-bottom:16px;">Gate Decision History</h4>
@@ -1225,7 +1225,7 @@ function renderDecisionCard(d) {
   </div>`;
 }
 
-// hasReturnedDocs: true when approver returned at least one document — only NO-GO is allowed
+// hasReturnedDocs: true when approver returned at least one document - only NO-GO is allowed
 function renderDecisionForm(stageNum, hasReturnedDocs = false) {
   const blockGo = hasReturnedDocs;
 
@@ -1590,7 +1590,7 @@ function showEditProjectPanel() {
   const close = () => panel.remove();
   panel.querySelector('#epp-close').addEventListener('click', close);
   panel.querySelector('#epp-cancel').addEventListener('click', close);
-  // Deliberately no click-outside-closes-panel — see showEvidenceModal for why.
+  // Deliberately no click-outside-closes-panel - see showEvidenceModal for why.
 
   const eppCurrencySel = panel.querySelector('#epp-capex-currency');
   eppCurrencySel.addEventListener('change', () => {
@@ -1643,7 +1643,7 @@ function showEditProjectPanel() {
 }
 
 // ===========================================================================
-// PROJECT DELETE MODAL (admin only — type "DELETE" to confirm)
+// PROJECT DELETE MODAL (admin only - type "DELETE" to confirm)
 // ===========================================================================
 
 function showDeleteProjectModal() {
@@ -1680,7 +1680,7 @@ function showDeleteProjectModal() {
 
   modal.querySelector('#dpm-close').addEventListener('click', close);
   modal.querySelector('#dpm-cancel').addEventListener('click', close);
-  // Deliberately no click-outside-closes-modal — see showEvidenceModal for why.
+  // Deliberately no click-outside-closes-modal - see showEvidenceModal for why.
 
   // Enable delete button only when user has typed exactly "DELETE"
   confirmInput.addEventListener('input', () => {
@@ -1703,7 +1703,7 @@ function showDeleteProjectModal() {
 }
 
 // ===========================================================================
-// FUTURE STAGE PREVIEW (not_started stages — grayed-out checklist)
+// FUTURE STAGE PREVIEW (not_started stages - grayed-out checklist)
 // ===========================================================================
 
 function switchToPreviewView(stageNum) {
@@ -1851,7 +1851,7 @@ async function openDocEditModal(doc, stageNum) {
   const close = () => modal.remove();
   modal.querySelector('#ded-close').addEventListener('click', close);
   modal.querySelector('#ded-cancel').addEventListener('click', close);
-  // Deliberately no click-outside-closes-modal — see showEvidenceModal for why.
+  // Deliberately no click-outside-closes-modal - see showEvidenceModal for why.
 
   modal.querySelector('#ded-save').addEventListener('click', async () => {
     const errEl   = modal.querySelector('#ded-error');
@@ -1890,9 +1890,9 @@ const VDR_STATUSES_GATE = ['outstanding','submitted','approved','superseded'];
  * @param {number}  stageNum    - current stage number
  * @param {boolean} canApprove  - show Approve buttons (gate approver reviewing)
  */
-// stageIsOpen: true when stage is in_progress — enables edit button for uploader
+// stageIsOpen: true when stage is in_progress - enables edit button for uploader
 function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
-  // Geometric SVG icons — square linecaps, straight lines
+  // Geometric SVG icons - square linecaps, straight lines
   const tickSvg = `<svg width="11" height="9" viewBox="0 0 11 9" fill="none" style="vertical-align:middle;flex-shrink:0;">
     <polyline points="1,4.5 3.5,7.5 10,1" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
   </svg>`;
@@ -1906,7 +1906,7 @@ function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
     let statusCell;
     if (canApprove) {
       // Gate approver view.
-      // Only 'submitted' docs get interactive buttons — 'outstanding'/'draft' are
+      // Only 'submitted' docs get interactive buttons - 'outstanding'/'draft' are
       // not yet ready for review (the uploader hasn't submitted them), so they just
       // show a plain status badge. 'outstanding' only means "returned" once the
       // approver has explicitly used the Return action on a previously-submitted doc.
@@ -1941,7 +1941,7 @@ function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
               style="font-size:11px;color:var(--text-muted);" title="Undo return">↩ Undo</button>
           </span>`;
         } else {
-          // Not yet submitted for review — show a plain badge, no action for the approver
+          // Not yet submitted for review - show a plain badge, no action for the approver
           statusCell = api.fmt.statusBadge(d.status);
         }
       } else {
@@ -2012,10 +2012,10 @@ function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
 
 /**
  * Renders a read-only snapshot of a completed stage.
- * Uses three existing endpoints — no new API calls needed:
- *   /stages/:stage/checklist   — final checklist state
- *   /stages/:stage/decisions   — gate decisions (with basic condition data)
- *   /stages/:stage/conditions  — conditions with closure names
+ * Uses three existing endpoints - no new API calls needed:
+ *   /stages/:stage/checklist - final checklist state
+ *   /stages/:stage/decisions - gate decisions (with basic condition data)
+ *   /stages/:stage/conditions - conditions with closure names
  */
 async function renderHistorySnapshot(el, stageNumber) {
   el.innerHTML = '<div class="loading">Loading stage history…</div>';
@@ -2046,7 +2046,7 @@ async function renderHistorySnapshot(el, stageNumber) {
     </div>
   `).join('');
 
-  // Gate decisions — show oldest first (chain order) then by round
+  // Gate decisions - show oldest first (chain order) then by round
   const sortedDecisions = [...decisions].sort((a, b) =>
     a.review_round - b.review_round || a.chain_position - b.chain_position
   );
@@ -2289,7 +2289,7 @@ async function renderTeam(el) {
 
   el.innerHTML = buildTeamHtml(adminView);
 
-  // Non-admin members see a read-only table — no event wiring needed
+  // Non-admin members see a read-only table - no event wiring needed
   if (!adminView) return;
 
   // ---- tracked changes: keyed by "uid|originalRole" ----
@@ -2320,7 +2320,7 @@ async function renderTeam(el) {
     if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
   }
 
-  // Role dropdowns — track change only, no API call
+  // Role dropdowns - track change only, no API call
   el.querySelectorAll('.team-role-select').forEach(sel => {
     sel.addEventListener('change', () => {
       const uid = parseInt(sel.dataset.uid, 10);
@@ -2330,7 +2330,7 @@ async function renderTeam(el) {
     });
   });
 
-  // Workstream dropdowns — track only
+  // Workstream dropdowns - track only
   el.querySelectorAll('.team-ws-select').forEach(sel => {
     sel.addEventListener('change', () => {
       const uid = parseInt(sel.dataset.uid, 10);
@@ -2340,7 +2340,7 @@ async function renderTeam(el) {
     });
   });
 
-  // Authority dropdowns — track only
+  // Authority dropdowns - track only
   el.querySelectorAll('.team-auth-select').forEach(sel => {
     sel.addEventListener('change', () => {
       const uid = parseInt(sel.dataset.uid, 10);
@@ -2401,7 +2401,7 @@ async function renderTeam(el) {
       }
     }
 
-    // Reload fresh data from server — this is the ground truth
+    // Reload fresh data from server - this is the ground truth
     await loadProject();
 
     if (errMsg && saveErr) {
@@ -2540,7 +2540,7 @@ function buildTeamHtml(adminView = false) {
     </div>`;
 }
 
-// Open the batch-add modal — admin picks multiple users from a checklist
+// Open the batch-add modal - admin picks multiple users from a checklist
 function openAddMembersModal(activeUsers) {
   document.getElementById('add-members-modal')?.remove();
   const existing = new Set(project.members.map(m => m.user_id));
@@ -2589,7 +2589,7 @@ function openAddMembersModal(activeUsers) {
   const close = () => modal.remove();
   modal.querySelector('#amm-close').addEventListener('click', close);
   modal.querySelector('#amm-cancel').addEventListener('click', close);
-  // Deliberately no click-outside-closes-modal — see showEvidenceModal for why.
+  // Deliberately no click-outside-closes-modal - see showEvidenceModal for why.
 
   const countEl  = modal.querySelector('#amm-selected-count');
   const confirmBtn = modal.querySelector('#amm-confirm');

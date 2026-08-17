@@ -1,4 +1,4 @@
-/* dataroom.js — Virtual Data Room page for observers/lenders */
+/* dataroom.js - Virtual Data Room page for observers/lenders */
 'use strict';
 
 document.addEventListener('DOMContentLoaded', async () => {

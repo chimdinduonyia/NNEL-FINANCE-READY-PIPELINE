@@ -27,8 +27,8 @@ const VALID_STATUSES = ['outstanding', 'draft', 'submitted', 'approved', 'supers
 // account with a project role. The bare "Forbidden" this replaced gave no
 // hint why, which is what actually caused the confusion.
 const FORBIDDEN_DOCUMENT_WRITE_MSG =
-  'Forbidden — only the Project Lead, or a Contributor for their own uploads, can write documents. ' +
-  'Admin accounts manage the system, not project data, even if the same account also holds a project role — ' +
+  'Forbidden - only the Project Lead, or a Contributor for their own uploads, can write documents. ' +
+  'Admin accounts manage the system, not project data, even if the same account also holds a project role - ' +
   'use a separate project-role account for hands-on project work.';
 
 // ---------------------------------------------------------------------------
@@ -340,7 +340,7 @@ async function remove(req, res, params) {
   // Submitted and approved documents are part of the gate review record
   // and cannot be deleted even by their uploader.
   if (['submitted', 'approved'].includes(doc.status)) {
-    return sendError(res, 409, `Cannot delete a document that has been ${doc.status} — it is part of the gate record`);
+    return sendError(res, 409, `Cannot delete a document that has been ${doc.status} - it is part of the gate record`);
   }
 
   const conn = await pool.getConnection();

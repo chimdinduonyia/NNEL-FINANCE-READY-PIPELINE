@@ -1,8 +1,8 @@
-/* notifications.js — notifications page */
+/* notifications.js - notifications page */
 'use strict';
 
 // Kept in sync by eye with server/routes/notifications.js's PROJECT_ACTIONS /
-// ACCOUNT_ACTIONS lists — this is just the display label for each.
+// ACCOUNT_ACTIONS lists - this is just the display label for each.
 const ACTION_LABELS = {
   gate_decision_recorded:   'Gate decision recorded',
   stage_submitted:          'Stage submitted for gate review',

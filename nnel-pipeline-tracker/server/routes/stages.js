@@ -183,7 +183,7 @@ async function updateChecklistItem(req, res, params) {
   // SECURITY: canEditWorkingData enforces the submission lock, stage state,
   // and contributor workstream scoping in one call
   if (!await canEditWorkingData(user.id, user.system_role, projectId, stageNumber, itemRow.pillar)) {
-    return sendError(res, 403, 'Forbidden — stage may be frozen or you may not have edit rights for this section');
+    return sendError(res, 403, 'Forbidden - stage may be frozen or you may not have edit rights for this section');
   }
 
   // Fetch the current row before any changes — needed for note-ownership check

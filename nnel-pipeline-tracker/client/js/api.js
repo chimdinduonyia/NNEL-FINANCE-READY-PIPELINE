@@ -1,4 +1,4 @@
-/* api.js — lightweight API client shared by all pages */
+/* api.js - lightweight API client shared by all pages */
 'use strict';
 
 const TOKEN_KEY = 'nnel_frp_token';
@@ -69,12 +69,12 @@ const api = {
   /**
    * Builds the app-wide collapsible left sidebar (nav + account snippet).
    * Call once after getMe() resolves. Expects the page to have a single
-   * empty element: <aside class="sidebar" id="sidebar"></aside> — this
+   * empty element: <aside class="sidebar" id="sidebar"></aside> - this
    * function owns everything inside it.
    *
    * Collapse behaviour: the user's expand/collapse preference is
    * remembered (localStorage) and reused on every page EXCEPT the project
-   * view, which always starts collapsed — checklists and tabs need the
+   * view, which always starts collapsed - checklists and tabs need the
    * width. Manually toggling on the project page still updates the shared
    * preference for other pages.
    */
@@ -187,7 +187,7 @@ const api = {
 
     document.getElementById('logout-btn').addEventListener('click', () => this.logout());
 
-    // Unread notifications badge — best-effort, never blocks sidebar rendering
+    // Unread notifications badge - best-effort, never blocks sidebar rendering
     this.get('/api/notifications/unread-count').then(({ count }) => {
       const badge = document.getElementById('sidebar-notif-badge');
       if (badge && count > 0) {
@@ -196,7 +196,7 @@ const api = {
       }
     }).catch(() => {});
 
-    // Recents — projects this user has actually been active on lately.
+    // Recents - projects this user has actually been active on lately.
     // Best-effort, same as the badge above.
     this.get('/api/projects/recent').then(items => {
       const list = document.getElementById('sidebar-recents-list');
@@ -213,7 +213,7 @@ const api = {
         </a>`).join('');
 
       // Marquee-on-hover, but only for names that actually overflow their
-      // width — measured directly rather than guessed, so short names never
+      // width - measured directly rather than guessed, so short names never
       // twitch and long ones scroll exactly far enough to reveal the end.
       list.querySelectorAll('.sidebar-recent-link').forEach(link => {
         const nameEl = link.querySelector('.sidebar-recent-name');
@@ -235,7 +235,7 @@ const api = {
   },
 
   // Pings "I'm here" once immediately and then every 60s for as long as this
-  // page stays open — see server/routes/presence.js for what "active" means.
+  // page stays open - see server/routes/presence.js for what "active" means.
   // Called once from initSidebar(), so every authenticated page gets it for
   // free without needing its own setup.
   startPresenceHeartbeat() {
@@ -266,7 +266,7 @@ const api = {
     return `<div class="avatar-stack">${items}${moreBadge}</div>`;
   },
 
-  // Shared icon set — geometric line icons (stroke=currentColor, square
+  // Shared icon set - geometric line icons (stroke=currentColor, square
   // linecaps/miter joins to match the rest of the app) used in place of
   // emoji everywhere. Each is a bare <svg> string; wrap with inline
   // style="vertical-align:middle;margin-right:6px;" at the call site same

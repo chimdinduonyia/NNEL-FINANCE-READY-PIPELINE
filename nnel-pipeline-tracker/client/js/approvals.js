@@ -1,4 +1,4 @@
-/* approvals.js — dedicated Approval Requests page for gate approvers
+/* approvals.js - dedicated Approval Requests page for gate approvers
  * Reuses GET /api/decisions/pending -- the same endpoint that already
  * powers the "Decisions awaiting you" banner on the dashboard. That
  * endpoint is already scoped server-side to stages where the calling

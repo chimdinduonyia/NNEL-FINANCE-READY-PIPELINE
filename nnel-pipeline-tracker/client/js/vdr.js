@@ -1,4 +1,4 @@
-/* vdr.js — admin/PM cross-project document register (VDR) */
+/* vdr.js - admin/PM cross-project document register (VDR) */
 'use strict';
 
 let projects = [];

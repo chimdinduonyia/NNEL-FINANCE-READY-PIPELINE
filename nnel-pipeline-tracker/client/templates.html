@@ -26,6 +26,7 @@
     .version-banner.warn { background:var(--amber-100); border:1px solid #fde68a; color:var(--amber-600); }
     .version-banner.safe { background:var(--green-50); border:1px solid var(--green-100); color:var(--green-700); }
     .version-banner.draft { background:var(--gray-100); border:1px dashed var(--gray-200); color:var(--gray-700); }
+    .version-banner.immutable { background:var(--blue-100); border:1px solid #93c5fd; color:var(--blue-600); }
     .version-banner strong { font-weight:700; }
 
     .version-history-group-heading {
@@ -46,7 +47,7 @@
 
     .item-row {
       display:grid;
-      grid-template-columns: 34px 100px 1fr 90px 68px 96px;
+      grid-template-columns: 22px 34px 100px 1fr 90px 68px 96px;
       gap:8px; align-items:center;
       padding:10px 12px;
       border-bottom:1px solid var(--border);
@@ -84,22 +85,22 @@
     <div class="app-content">
 
   <main class="container page-main">
-    <div class="flex items-center justify-between" style="margin-bottom:20px;">
-      <div>
-        <h1 style="font-size:24px;font-weight:800;">Template Editor</h1>
-        <p class="text-muted text-sm mt-4">Manage the FRP checklist templates for each project vertical.</p>
-      </div>
-      <div id="editor-header-actions"></div>
+    <div style="margin-bottom:20px;">
+      <h1 style="font-size:24px;font-weight:800;">Template Editor</h1>
+      <p class="text-muted text-sm mt-4">Manage the FRP checklist templates for each project vertical.</p>
     </div>
 
-    <!-- Technology tabs -->
+    <!-- Technology tabs, with the Publish button (only shown while a draft
+         is open) on the same line, pinned to the far right so it stays in
+         view without needing to scroll to the top of the page. -->
     <div class="card" style="overflow:visible;">
-      <div style="border-bottom:2px solid var(--border);">
+      <div class="flex items-center justify-between" style="border-bottom:2px solid var(--border);">
         <div class="template-tabs" id="tech-tabs">
           <button class="template-tab active" data-tech="solar_pv">Solar PV</button>
           <button class="template-tab" data-tech="biofuels">Biofuels</button>
           <button class="template-tab" data-tech="abatement">Abatement</button>
         </div>
+        <div id="editor-header-actions" style="margin-right:16px;"></div>
       </div>
       <div class="card-body">
         <div id="template-content">

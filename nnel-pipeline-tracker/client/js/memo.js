@@ -1,4 +1,4 @@
-/* memo.js — Internal Memo Export page */
+/* memo.js - Internal Memo Export page */
 'use strict';
 
 const ROLE_LABELS = {
@@ -181,14 +181,14 @@ function buildMemo(d) {
       </table>
     </div>
 
-    <!-- 7. Next Steps — EDITABLE -->
+    <!-- 7. Next Steps - EDITABLE -->
     <div class="memo-section">
       <h2>7. Next Steps</h2>
       <textarea class="memo-textarea" id="field-next-steps" rows="6"
         placeholder="Enter the agreed next steps, responsibilities, and target dates…"></textarea>
     </div>
 
-    <!-- 8. Additional Notes — EDITABLE -->
+    <!-- 8. Additional Notes - EDITABLE -->
     <div class="memo-section">
       <h2>8. Additional Notes</h2>
       <textarea class="memo-textarea" id="field-notes" rows="4"

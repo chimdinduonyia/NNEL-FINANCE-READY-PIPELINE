@@ -165,6 +165,11 @@ async function handleRequest(req, res) {
   if (params = match('/api/templates/:versionId/items/:itemId/reorder', path)) {
     if (method === 'POST') return templateRoutes.reorderItem(req, res, params);
   }
+  // Literal route checked before the /items/:itemId wildcard below, so a
+  // POST to .../items/bulk-delete can never be shadowed by it.
+  if (params = match('/api/templates/:versionId/items/bulk-delete', path)) {
+    if (method === 'POST') return templateRoutes.bulkDeleteItems(req, res, params);
+  }
   if (params = match('/api/templates/:versionId/items/:itemId', path)) {
     if (method === 'PATCH')  return templateRoutes.editItem(req, res, params);
     if (method === 'DELETE') return templateRoutes.deleteItem(req, res, params);
@@ -322,7 +327,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`NNEL Pipeline Tracker — http://localhost:${PORT}`);
+  console.log(`NNEL Pipeline Tracker - http://localhost:${PORT}`);
   console.log('');
   console.log('  Auth:');
   console.log('    POST /api/auth/login');

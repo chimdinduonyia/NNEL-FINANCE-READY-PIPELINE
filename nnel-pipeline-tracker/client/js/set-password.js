@@ -1,4 +1,4 @@
-/* set-password.js — invite-acceptance page logic */
+/* set-password.js - invite-acceptance page logic */
 'use strict';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   document.getElementById('invite-greeting').textContent =
-    `Welcome, ${invitee.full_name} — activate your account (${invitee.email}) below.`;
+    `Welcome, ${invitee.full_name} - activate your account (${invitee.email}) below.`;
   loadingEl.classList.add('hidden');
   formWrap.classList.remove('hidden');
 

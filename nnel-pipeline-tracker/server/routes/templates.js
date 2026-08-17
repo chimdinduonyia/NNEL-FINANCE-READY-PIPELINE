@@ -230,6 +230,42 @@ async function projectCount(versionStr) {
 }
 
 // ---------------------------------------------------------------------------
+// Decides whether an edit to `tv` needs to fork before applying, and does it
+// if so. Two independent reasons to fork (migration 027):
+//   - tv.is_immutable: the three original standard templates (Solar PV /
+//     Biofuels / Abatement "Standard v1.0") can never be edited in place,
+//     full stop — always forks to a new DRAFT, regardless of usage. An
+//     admin has to deliberately publish (and separately activate) the
+//     result; it never silently becomes the live default.
+//   - project_count(tv.version) > 0: the existing fork-on-edit safety net —
+//     forks to a new ACTIVE version, same as it always has.
+// tv must include at least { id, version, is_immutable }.
+// Returns { targetVersionId, forked, newVersion } — caller applies its
+// actual edit to targetVersionId either way, and returns forked/newVersion
+// to the client the same way every endpoint here already does.
+// ---------------------------------------------------------------------------
+async function forkIfNeeded(conn, tv, userId, reason) {
+  if (tv.is_immutable) {
+    const fork = await forkVersion(conn, tv.id, userId, null, { asDraft: true });
+    await auditLog.log(conn, {
+      userId, action: 'template_version_created',
+      detail: { source_version_id: tv.id, reason: `${reason}_on_immutable_standard`, new_version: fork.version },
+    });
+    return { targetVersionId: fork.id, forked: true, newVersion: fork.version };
+  }
+  const cnt = await projectCount(tv.version);
+  if (cnt > 0) {
+    const fork = await forkVersion(conn, tv.id, userId);
+    await auditLog.log(conn, {
+      userId, action: 'template_version_created',
+      detail: { source_version_id: tv.id, reason, new_version: fork.version },
+    });
+    return { targetVersionId: fork.id, forked: true, newVersion: fork.version };
+  }
+  return { targetVersionId: tv.id, forked: false, newVersion: null };
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/templates
 // ---------------------------------------------------------------------------
 async function listVersions(req, res) {
@@ -245,7 +281,7 @@ async function listVersions(req, res) {
   const publishedOnly = url.searchParams.get('published_only') === 'true';
 
   const [rows] = await pool.execute(
-    `SELECT tv.id, tv.version, tv.name, tv.technology, tv.description, tv.is_active, tv.is_draft,
+    `SELECT tv.id, tv.version, tv.name, tv.technology, tv.description, tv.is_active, tv.is_draft, tv.is_immutable,
             tv.created_at, tv.created_by, u.full_name AS created_by_name,
             (SELECT COUNT(*) FROM projects p
              WHERE p.template_version = tv.version
@@ -302,7 +338,7 @@ async function getItems(req, res, params) {
   if (!versionId) return sendError(res, 400, 'Invalid versionId');
 
   const [[tv]] = await pool.execute(
-    'SELECT id, version, technology, description, is_active, is_draft FROM template_versions WHERE id = ?',
+    'SELECT id, version, technology, description, is_active, is_draft, is_immutable FROM template_versions WHERE id = ?',
     [versionId]
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
@@ -347,6 +383,7 @@ async function getItems(req, res, params) {
     description:   tv.description,
     is_active:     tv.is_active,
     is_draft:      !!tv.is_draft,
+    is_immutable:  !!tv.is_immutable,
     project_count: cnt,
     next_version:  bumpVersion(tv.version),
     stages:        Object.values(byStage),
@@ -388,7 +425,7 @@ async function addItem(req, res, params) {
 
   // Confirm the version exists and get its technology (for the code prefix)
   const [[tv]] = await pool.execute(
-    'SELECT version, technology FROM template_versions WHERE id = ?', [versionId]
+    'SELECT id, version, technology, is_immutable FROM template_versions WHERE id = ?', [versionId]
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
   const techPrefix = TECH_PREFIX[tv.technology] ?? 'S';
@@ -397,12 +434,20 @@ async function addItem(req, res, params) {
   try {
     await conn.beginTransaction();
 
+    // addItem doesn't fork for the ordinary in-use case (adding a new item
+    // is always safe — existing stage_checklist rows are unaffected). The
+    // one exception is an immutable standard template, which forks to a
+    // draft unconditionally — see forkIfNeeded().
+    const { targetVersionId, forked, newVersion } = tv.is_immutable
+      ? await forkIfNeeded(conn, tv, user.id, 'item_add')
+      : { targetVersionId: versionId, forked: false, newVersion: null };
+
     // Position = last in the group. No renumbering needed for an append —
     // nothing else shifts.
     const [[{ maxSort }]] = await conn.execute(
       `SELECT MAX(sort_order) AS maxSort FROM template_checklist_items
        WHERE template_version_id = ? AND stage_number = ? AND pillar = ?`,
-      [versionId, stage_number, pillar]
+      [targetVersionId, stage_number, pillar]
     );
     const position = (maxSort ?? 0) + 1;
     const letter = PILLAR_LETTER[pillar] ?? pillar.charAt(0).toUpperCase();
@@ -413,7 +458,7 @@ async function addItem(req, res, params) {
          (template_version_id, stage_number, pillar, item_code, description,
           guidance, is_mandatory, sort_order, is_active)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [versionId, stage_number, pillar, itemCode,
+      [targetVersionId, stage_number, pillar, itemCode,
        description.trim(), guidance || null,
        is_mandatory !== false ? 1 : 0,
        position]
@@ -421,10 +466,10 @@ async function addItem(req, res, params) {
     await auditLog.log(conn, {
       userId: user.id,
       action: 'template_item_added',
-      detail: { version_id: versionId, version: tv.version, item_code: itemCode },
+      detail: { version_id: targetVersionId, version: tv.version, item_code: itemCode, forked },
     });
     await conn.commit();
-    sendJSON(res, 201, { id: result.insertId, item_code: itemCode });
+    sendJSON(res, 201, { id: result.insertId, item_code: itemCode, forked, new_version_id: forked ? targetVersionId : null, new_version: newVersion });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -475,32 +520,14 @@ async function editItem(req, res, params) {
   if (!item) return sendError(res, 404, 'Item not found in this template version');
 
   const [[tv]] = await pool.execute(
-    'SELECT version FROM template_versions WHERE id = ?', [versionId]
+    'SELECT id, version, is_immutable FROM template_versions WHERE id = ?', [versionId]
   );
-
-  const cnt = await projectCount(tv.version);
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let targetVersionId = versionId;
-    let forked = false;
-    let newVersion = null;
-
-    if (cnt > 0) {
-      // Fork: create a new version, apply the edit there
-      const fork = await forkVersion(conn, versionId, user.id);
-      targetVersionId = fork.id;
-      newVersion      = fork.version;
-      forked          = true;
-
-      await auditLog.log(conn, {
-        userId: user.id,
-        action: 'template_version_created',
-        detail: { source_version_id: versionId, source_version: tv.version, new_version: newVersion, reason: 'edit_with_active_projects' },
-      });
-    }
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'item_edit');
 
     // Apply the edit (to forked copy or in-place)
     vals.push(targetVersionId, item.item_code);
@@ -553,30 +580,14 @@ async function setItemStatus(req, res, params) {
   if (!item) return sendError(res, 404, 'Item not found in this template version');
 
   const [[tv]] = await pool.execute(
-    'SELECT version FROM template_versions WHERE id = ?', [versionId]
+    'SELECT id, version, is_immutable FROM template_versions WHERE id = ?', [versionId]
   );
-
-  const cnt = await projectCount(tv.version);
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let targetVersionId = versionId;
-    let forked = false;
-    let newVersion = null;
-
-    if (cnt > 0) {
-      const fork = await forkVersion(conn, versionId, user.id);
-      targetVersionId = fork.id;
-      newVersion      = fork.version;
-      forked          = true;
-      await auditLog.log(conn, {
-        userId: user.id,
-        action: 'template_version_created',
-        detail: { source_version_id: versionId, source_version: tv.version, new_version: newVersion, reason: 'status_change_with_active_projects' },
-      });
-    }
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'item_status_change');
 
     await conn.execute(
       `UPDATE template_checklist_items SET is_active = ?
@@ -637,34 +648,20 @@ async function deleteItem(req, res, params) {
   );
   if (Number(usageCount) > 0) {
     return sendError(res, 409,
-      `Cannot delete — ${usageCount} project stage${usageCount > 1 ? 's have' : ' has'} already used this item. Disable it instead.`);
+      `Cannot delete - ${usageCount} project stage${usageCount > 1 ? 's have' : ' has'} already used this item. Disable it instead.`);
   }
 
   const [[tv]] = await pool.execute(
-    'SELECT version, technology FROM template_versions WHERE id = ?', [versionId]
+    'SELECT id, version, technology, is_immutable FROM template_versions WHERE id = ?', [versionId]
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
   const techPrefix = TECH_PREFIX[tv.technology] ?? 'S';
 
-  const cnt = await projectCount(tv.version);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let targetVersionId = versionId;
-    let forked = false;
-    let newVersion = null;
-
-    if (cnt > 0) {
-      const fork = await forkVersion(conn, versionId, user.id);
-      targetVersionId = fork.id;
-      newVersion      = fork.version;
-      forked          = true;
-      await auditLog.log(conn, {
-        userId: user.id, action: 'template_version_created',
-        detail: { reason: 'item_delete_with_active_projects', new_version: newVersion },
-      });
-    }
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'item_delete');
 
     // Match by item_code, not id — a fork clones the row with a new id but
     // the same code (same pattern editItem/setItemStatus already use).
@@ -682,6 +679,102 @@ async function deleteItem(req, res, params) {
 
     await conn.commit();
     sendJSON(res, 200, { deleted: true, forked, new_version_id: forked ? targetVersionId : null, new_version: newVersion });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * POST /api/templates/:versionId/items/bulk-delete
+ * Body: { item_ids: [12, 13, 14] }
+ *
+ * Same rule as the single-item DELETE, applied to a whole selection at
+ * once: all-or-nothing (if ANY selected item has ever been reached by a
+ * project, the whole batch is rejected with the list of which ones — never
+ * silently deletes the rest), one fork decision for the batch (not one per
+ * item), then renumbers every (stage, pillar) group touched by the
+ * selection — a selection can span multiple groups if items from different
+ * pillars/stages were selected together.
+ */
+async function bulkDeleteItems(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+  if (!['admin','project_manager'].includes(user.system_role)) return sendError(res, 403, 'Forbidden');
+
+  const versionId = parseInt(params.versionId, 10);
+  if (!versionId) return sendError(res, 400, 'Invalid versionId');
+
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
+  const itemIds = Array.isArray(body.item_ids) ? body.item_ids.map(n => parseInt(n, 10)).filter(Number.isInteger) : [];
+  if (itemIds.length === 0) return sendError(res, 400, 'item_ids must be a non-empty array');
+
+  const placeholders = itemIds.map(() => '?').join(',');
+  const [items] = await pool.execute(
+    `SELECT id, item_code, stage_number, pillar FROM template_checklist_items
+     WHERE template_version_id = ? AND id IN (${placeholders})`,
+    [versionId, ...itemIds]
+  );
+  if (items.length === 0) return sendError(res, 404, 'None of the selected items belong to this template version');
+
+  // SAFETY: same as the single-item delete — reject the whole batch if any
+  // selected item has ever been reached by a project.
+  const [usageRows] = await pool.execute(
+    `SELECT checklist_item_id, COUNT(*) AS n FROM stage_checklist
+     WHERE checklist_item_id IN (${items.map(() => '?').join(',')})
+     GROUP BY checklist_item_id`,
+    items.map(i => i.id)
+  );
+  if (usageRows.length > 0) {
+    const usedCodes = items
+      .filter(i => usageRows.some(u => u.checklist_item_id === i.id))
+      .map(i => i.item_code);
+    return sendError(res, 409,
+      `Cannot delete - ${usedCodes.length} of the selected item${usedCodes.length > 1 ? 's have' : ' has'} already been ` +
+      `used by a project (${usedCodes.join(', ')}). Deselect ${usedCodes.length > 1 ? 'them' : 'it'} and disable instead, ` +
+      `or delete the rest separately.`);
+  }
+
+  const [[tv]] = await pool.execute(
+    'SELECT id, version, technology, is_immutable FROM template_versions WHERE id = ?', [versionId]
+  );
+  if (!tv) return sendError(res, 404, 'Template version not found');
+  const techPrefix = TECH_PREFIX[tv.technology] ?? 'S';
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'item_bulk_delete');
+
+    // Match by item_code, not id — same reasoning as the single-item delete.
+    const codes = items.map(i => i.item_code);
+    await conn.execute(
+      `DELETE FROM template_checklist_items
+       WHERE template_version_id = ? AND item_code IN (${codes.map(() => '?').join(',')})`,
+      [targetVersionId, ...codes]
+    );
+
+    // Renumber every distinct (stage, pillar) group the selection touched.
+    const groups = new Map(); // "stage|pillar" -> { stage_number, pillar }
+    items.forEach(i => groups.set(`${i.stage_number}|${i.pillar}`, { stage_number: i.stage_number, pillar: i.pillar }));
+    for (const { stage_number, pillar } of groups.values()) {
+      await renumberPillarGroup(conn, targetVersionId, stage_number, pillar, techPrefix);
+    }
+
+    await auditLog.log(conn, {
+      userId: user.id, action: 'template_items_bulk_deleted',
+      detail: { version_id: targetVersionId, count: items.length, item_codes: codes, forked },
+    });
+
+    await conn.commit();
+    sendJSON(res, 200, {
+      deleted: true, count: items.length, forked,
+      new_version_id: forked ? targetVersionId : null, new_version: newVersion,
+    });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -729,30 +822,16 @@ async function reorderItem(req, res, params) {
   if (!item) return sendError(res, 404, 'Item not found in this template version');
 
   const [[tv]] = await pool.execute(
-    'SELECT version, technology FROM template_versions WHERE id = ?', [versionId]
+    'SELECT id, version, technology, is_immutable FROM template_versions WHERE id = ?', [versionId]
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
   const techPrefix = TECH_PREFIX[tv.technology] ?? 'S';
 
-  const cnt = await projectCount(tv.version);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let targetVersionId = versionId;
-    let forked = false;
-    let newVersion = null;
-
-    if (cnt > 0) {
-      const fork = await forkVersion(conn, versionId, user.id);
-      targetVersionId = fork.id;
-      newVersion      = fork.version;
-      forked          = true;
-      await auditLog.log(conn, {
-        userId: user.id, action: 'template_version_created',
-        detail: { reason: 'item_reorder_with_active_projects', new_version: newVersion },
-      });
-    }
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'item_reorder');
 
     const [groupItems] = await conn.execute(
       `SELECT id, item_code, sort_order FROM template_checklist_items
@@ -933,27 +1012,14 @@ async function setGateApprovers(req, res, params) {
     return sendError(res, 400, `Each chain entry must be one of: ${GATE_AUTHORITY_VALUES.join(', ')}`);
   }
 
-  const [[tv]] = await pool.execute('SELECT version FROM template_versions WHERE id = ?', [versionId]);
+  const [[tv]] = await pool.execute('SELECT id, version, is_immutable FROM template_versions WHERE id = ?', [versionId]);
   if (!tv) return sendError(res, 404, 'Template version not found');
-
-  const cnt = await projectCount(tv.version);
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let targetVersionId = versionId;
-    let forked = false;
-
-    if (cnt > 0) {
-      const fork = await forkVersion(conn, versionId, user.id);
-      targetVersionId = fork.id;
-      forked = true;
-      await auditLog.log(conn, {
-        userId: user.id, action: 'template_version_created',
-        detail: { reason: 'gate_approver_change', new_version: fork.version },
-      });
-    }
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'gate_approver_change');
 
     // Replace existing chain for this stage
     await conn.execute(
@@ -971,7 +1037,7 @@ async function setGateApprovers(req, res, params) {
       detail: { version_id: targetVersionId, stage_number, chain, forked },
     });
     await conn.commit();
-    sendJSON(res, 200, { updated: true, forked, new_version_id: forked ? targetVersionId : null });
+    sendJSON(res, 200, { updated: true, forked, new_version_id: forked ? targetVersionId : null, new_version: newVersion });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -1001,29 +1067,15 @@ async function setStageStatus(req, res, params) {
   }
 
   const [[tv]] = await pool.execute(
-    'SELECT version FROM template_versions WHERE id = ?', [versionId]
+    'SELECT id, version, is_immutable FROM template_versions WHERE id = ?', [versionId]
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
 
-  const cnt = await projectCount(tv.version);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let targetVersionId = versionId;
-    let forked = false;
-    let newVersion = null;
-
-    if (cnt > 0) {
-      const fork = await forkVersion(conn, versionId, user.id);
-      targetVersionId = fork.id;
-      newVersion      = fork.version;
-      forked          = true;
-      await auditLog.log(conn, {
-        userId: user.id, action: 'template_version_created',
-        detail: { reason: 'stage_status_change', new_version: newVersion },
-      });
-    }
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'stage_status_change');
 
     await conn.execute(
       `UPDATE template_checklist_items SET is_active = ?
@@ -1068,7 +1120,7 @@ async function renameStage(req, res, params) {
   if (!name) return sendError(res, 400, 'name is required');
   if (name.length > 100) return sendError(res, 400, 'name must be 100 characters or fewer');
 
-  const [[tv]] = await pool.execute('SELECT version FROM template_versions WHERE id = ?', [versionId]);
+  const [[tv]] = await pool.execute('SELECT id, version, is_immutable FROM template_versions WHERE id = ?', [versionId]);
   if (!tv) return sendError(res, 404, 'Template version not found');
 
   const [[stageRow]] = await pool.execute(
@@ -1077,25 +1129,11 @@ async function renameStage(req, res, params) {
   );
   if (!stageRow) return sendError(res, 404, 'Stage not found in this template version');
 
-  const cnt = await projectCount(tv.version);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let targetVersionId = versionId;
-    let forked = false;
-    let newVersion = null;
-
-    if (cnt > 0) {
-      const fork = await forkVersion(conn, versionId, user.id);
-      targetVersionId = fork.id;
-      newVersion      = fork.version;
-      forked          = true;
-      await auditLog.log(conn, {
-        userId: user.id, action: 'template_version_created',
-        detail: { reason: 'stage_rename', new_version: newVersion },
-      });
-    }
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'stage_rename');
 
     await conn.execute(
       'UPDATE template_stages SET name = ? WHERE template_version_id = ? AND stage_number = ?',
@@ -1140,28 +1178,14 @@ async function addStage(req, res, params) {
   if (!name) return sendError(res, 400, 'name is required');
   if (name.length > 100) return sendError(res, 400, 'name must be 100 characters or fewer');
 
-  const [[tv]] = await pool.execute('SELECT version FROM template_versions WHERE id = ?', [versionId]);
+  const [[tv]] = await pool.execute('SELECT id, version, is_immutable FROM template_versions WHERE id = ?', [versionId]);
   if (!tv) return sendError(res, 404, 'Template version not found');
 
-  const cnt = await projectCount(tv.version);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let targetVersionId = versionId;
-    let forked = false;
-    let newVersion = null;
-
-    if (cnt > 0) {
-      const fork = await forkVersion(conn, versionId, user.id);
-      targetVersionId = fork.id;
-      newVersion      = fork.version;
-      forked          = true;
-      await auditLog.log(conn, {
-        userId: user.id, action: 'template_version_created',
-        detail: { reason: 'stage_added', new_version: newVersion },
-      });
-    }
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'stage_added');
 
     const [[{ maxStage }]] = await conn.execute(
       'SELECT MAX(stage_number) AS maxStage FROM template_stages WHERE template_version_id = ?',
@@ -1171,7 +1195,7 @@ async function addStage(req, res, params) {
     if (nextStage > MAX_STAGE_NUMBER) {
       await conn.rollback();
       return sendError(res, 400,
-        `Cannot add another stage — this template already has the maximum of ${MAX_STAGE_NUMBER + 1} stages`);
+        `Cannot add another stage - this template already has the maximum of ${MAX_STAGE_NUMBER + 1} stages`);
     }
 
     await conn.execute(
@@ -1221,28 +1245,14 @@ async function reorderStage(req, res, params) {
     return sendError(res, 400, "direction must be 'up' or 'down'");
   }
 
-  const [[tv]] = await pool.execute('SELECT version FROM template_versions WHERE id = ?', [versionId]);
+  const [[tv]] = await pool.execute('SELECT id, version, is_immutable FROM template_versions WHERE id = ?', [versionId]);
   if (!tv) return sendError(res, 404, 'Template version not found');
 
-  const cnt = await projectCount(tv.version);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    let targetVersionId = versionId;
-    let forked = false;
-    let newVersion = null;
-
-    if (cnt > 0) {
-      const fork = await forkVersion(conn, versionId, user.id);
-      targetVersionId = fork.id;
-      newVersion      = fork.version;
-      forked          = true;
-      await auditLog.log(conn, {
-        userId: user.id, action: 'template_version_created',
-        detail: { reason: 'stage_reorder', new_version: newVersion },
-      });
-    }
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'stage_reorder');
 
     const [stageRows] = await conn.execute(
       'SELECT stage_number FROM template_stages WHERE template_version_id = ? ORDER BY stage_number',
@@ -1324,19 +1334,29 @@ async function clearGateApprovers(req, res, params) {
   const versionId   = parseInt(params.versionId, 10);
   const stageNumber = parseInt(params.stage, 10);
 
+  const [[tv]] = await pool.execute('SELECT id, version, is_immutable FROM template_versions WHERE id = ?', [versionId]);
+  if (!tv) return sendError(res, 404, 'Template version not found');
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+
+    // This previously had no fork-on-edit check at all (pre-2026-08-18 gap —
+    // clearing a chain on an in-use version applied straight to it, unlike
+    // setGateApprovers). Fixed here as part of adding the immutable-standard
+    // protection, since it's the same class of oversight.
+    const { targetVersionId, forked, newVersion } = await forkIfNeeded(conn, tv, user.id, 'gate_approver_clear');
+
     await conn.execute(
       'DELETE FROM template_gate_approvers WHERE template_version_id = ? AND stage_number = ?',
-      [versionId, stageNumber]
+      [targetVersionId, stageNumber]
     );
     await auditLog.log(conn, {
       userId: user.id, action: 'template_gate_approvers_cleared',
-      detail: { version_id: versionId, stage_number: stageNumber },
+      detail: { version_id: targetVersionId, stage_number: stageNumber, forked },
     });
     await conn.commit();
-    sendJSON(res, 200, { cleared: true });
+    sendJSON(res, 200, { cleared: true, forked, new_version_id: forked ? targetVersionId : null, new_version: newVersion });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -1450,7 +1470,7 @@ async function setActive(req, res, params) {
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
   if (tv.is_draft) {
-    return sendError(res, 409, 'This version is still a draft — publish it before setting it active.');
+    return sendError(res, 409, 'This version is still a draft - publish it before setting it active.');
   }
 
   const conn = await pool.getConnection();
@@ -1499,7 +1519,7 @@ async function deleteVersion(req, res, params) {
   if (!versionId) return sendError(res, 400, 'Invalid versionId');
 
   const [[tv]] = await pool.execute(
-    `SELECT tv.id, tv.version, tv.name, tv.technology, tv.is_active, tv.created_by,
+    `SELECT tv.id, tv.version, tv.name, tv.technology, tv.is_active, tv.is_immutable, tv.created_by,
             u.full_name AS created_by_name
      FROM template_versions tv
      LEFT JOIN users u ON u.id = tv.created_by
@@ -1507,6 +1527,12 @@ async function deleteVersion(req, res, params) {
     [versionId]
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
+
+  // The three original standard templates can never be deleted, full stop —
+  // regardless of active/project-count state (migration 027).
+  if (tv.is_immutable) {
+    return sendError(res, 409, 'This is one of the original standard templates and cannot be deleted.');
+  }
 
   // SECURITY: PMs may only delete versions they created
   if (user.system_role === 'project_manager' && tv.created_by !== user.id) {
@@ -1573,7 +1599,7 @@ async function deleteVersion(req, res, params) {
 
 module.exports = {
   listVersions, getActive, getItems, addItem, editItem, setItemStatus, setStageStatus,
-  deleteItem, reorderItem,
+  deleteItem, reorderItem, bulkDeleteItems,
   manualFork, publishDraft, createVersion, setActive, deleteVersion,
   getGateApprovers, setGateApprovers, clearGateApprovers,
   renameStage, addStage, reorderStage,

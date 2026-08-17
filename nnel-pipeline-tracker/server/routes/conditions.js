@@ -101,13 +101,13 @@ async function closeCondition(req, res, params) {
     const member = await getProjectMember(projectId, user.id);
     allowed = member?.role === 'project_lead';
   }
-  if (!allowed) return sendError(res, 403, 'Forbidden — only the Project Lead or Admin can close conditions');
+  if (!allowed) return sendError(res, 403, 'Forbidden - only the Project Lead or Admin can close conditions');
 
   let body;
   try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
 
   if (!body.evidence_note || typeof body.evidence_note !== 'string' || body.evidence_note.trim().length === 0) {
-    return sendError(res, 400, 'evidence_note is required — describe how this condition was satisfied');
+    return sendError(res, 400, 'evidence_note is required - describe how this condition was satisfied');
   }
 
   // Load the condition and verify it belongs to this project/stage and is still open
@@ -254,14 +254,14 @@ async function reopenStage(req, res, params) {
 
   // Coarse permission check: admin OR gate_approver with locked stage
   if (!await canReopenStage(user.id, user.system_role, projectId, stageNumber)) {
-    return sendError(res, 403, 'Forbidden — stage must be approved/conditional/rejected, and you must be Admin or Gate Approver');
+    return sendError(res, 403, 'Forbidden - stage must be approved/conditional/rejected, and you must be Admin or Gate Approver');
   }
 
   let body;
   try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
 
   if (!body.reason || typeof body.reason !== 'string' || body.reason.trim().length === 0) {
-    return sendError(res, 400, 'reason is required — state why this stage is being re-opened');
+    return sendError(res, 400, 'reason is required - state why this stage is being re-opened');
   }
 
   const stage = await getStageState(projectId, stageNumber);
@@ -293,7 +293,7 @@ async function reopenStage(req, res, params) {
       const provided = AUTHORITY_RANK[member.approver_authority] ?? 0;
       if (provided < required) {
         return sendError(res, 403,
-          `Insufficient authority — this gate was signed by ${topSigner.authority.replace(/_/g, '-').toUpperCase()}. ` +
+          `Insufficient authority - this gate was signed by ${topSigner.authority.replace(/_/g, '-').toUpperCase()}. ` +
           `You need equal or higher authority to re-open it.`
         );
       }
@@ -313,7 +313,7 @@ async function reopenStage(req, res, params) {
     // Block re-open if the next stage is already too far along to safely roll back
     if (nextStageStatus && ['submitted', 'approved', 'conditional', 'rejected'].includes(nextStageStatus)) {
       return sendError(res, 409,
-        `Cannot re-open Stage ${stageNumber} — Stage ${stageNumber + 1} is already '${nextStageStatus}'. ` +
+        `Cannot re-open Stage ${stageNumber} - Stage ${stageNumber + 1} is already '${nextStageStatus}'. ` +
         `Resolve the downstream stage first.`
       );
     }

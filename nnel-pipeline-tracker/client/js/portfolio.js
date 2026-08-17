@@ -1,4 +1,4 @@
-/* portfolio.js — portfolio / landing page */
+/* portfolio.js - portfolio / landing page */
 'use strict';
 
 let currentUser   = null;
@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Active Now — portal-wide presence, visible to everyone on the dashboard
+// Active Now - portal-wide presence, visible to everyone on the dashboard
 // ---------------------------------------------------------------------------
 async function renderActiveNow() {
   const el = document.getElementById('active-now-stack');
@@ -290,7 +290,7 @@ function setupNewProjectModal() {
 
     if (!allTemplateVersions) {
       // published_only: drafts (still being built in the template editor)
-      // must never be selectable for a real project — see DRAFT/PUBLISH in
+      // must never be selectable for a real project - see DRAFT/PUBLISH in
       // server/routes/templates.js.
       try { allTemplateVersions = await api.get('/api/templates?published_only=true'); }
       catch { allTemplateVersions = []; }

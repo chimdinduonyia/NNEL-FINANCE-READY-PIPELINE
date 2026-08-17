@@ -1,4 +1,4 @@
-/* documents.js — "my document upload footprint" page (regular users) */
+/* documents.js - "my document upload footprint" page (regular users) */
 'use strict';
 
 document.addEventListener('DOMContentLoaded', async () => {

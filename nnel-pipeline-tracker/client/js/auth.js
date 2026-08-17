@@ -1,4 +1,4 @@
-/* auth.js — login page logic */
+/* auth.js - login page logic */
 'use strict';
 
 document.addEventListener('DOMContentLoaded', async () => {

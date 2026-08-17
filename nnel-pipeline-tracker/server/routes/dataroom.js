@@ -38,7 +38,7 @@ async function getDataroom(req, res, params) {
   // SECURITY: canViewProject enforces Stage 3+ and expiry for observers,
   // and standard project membership for all other roles.
   if (!await canViewProject(user.id, user.system_role, projectId)) {
-    return sendError(res, 403, 'Access denied — this data room may require Stage 3+, or your access may have expired');
+    return sendError(res, 403, 'Access denied - this data room may require Stage 3+, or your access may have expired');
   }
 
   // Fetch basic project metadata shown at the top of the data room

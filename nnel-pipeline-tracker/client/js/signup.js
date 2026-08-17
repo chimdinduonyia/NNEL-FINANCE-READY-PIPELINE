@@ -1,4 +1,4 @@
-/* signup.js — create-account page logic */
+/* signup.js - create-account page logic */
 'use strict';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const confirmInput = document.getElementById('confirm-password');
   const matchEl      = document.getElementById('pw-match');
 
-  // Mirrors the server-side rules in server/routes/auth.js signup() —
+  // Mirrors the server-side rules in server/routes/auth.js signup() - 
   // this is purely for instant feedback; the server re-checks everything.
   const RULES = {
     length:  pw => pw.length >= 12,
