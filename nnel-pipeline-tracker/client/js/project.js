@@ -80,9 +80,23 @@ async function loadProject() {
   document.title = `${project.name.toUpperCase()} | NNEL Pipeline Tracker`;
   renderHeader();
   renderProjectBrief();
+  renderProjectPresence();
   renderPipelineStrip();
   renderTabs();
   loadTab(activeTab);
+}
+
+// Who from this project's team is active right now — scoped to project
+// members only (see server/routes/projects.js getProjectPresence).
+async function renderProjectPresence() {
+  const el = document.getElementById('project-presence-stack');
+  if (!el) return;
+  try {
+    const users = await api.get(`/api/projects/${projectId}/presence`);
+    el.innerHTML = api.buildAvatarStack(users, { emptyText: 'No one else from the team is active right now' });
+  } catch {
+    el.innerHTML = '<div class="text-sm text-muted">Could not load</div>';
+  }
 }
 
 // ---- Project brief — quick fact strip shown above the stepper -------------

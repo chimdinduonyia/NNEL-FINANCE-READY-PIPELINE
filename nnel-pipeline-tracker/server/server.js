@@ -26,6 +26,7 @@ const raciRoutes      = require('./routes/raci');
 const memoRoutes      = require('./routes/memo');
 const userRoutes      = require('./routes/users');
 const notificationRoutes = require('./routes/notifications');
+const presenceRoutes  = require('./routes/presence');
 const { sendJSON, sendError } = require('./utils/response');
 
 const PORT       = Number(process.env.PORT) || 3000;
@@ -118,6 +119,10 @@ async function handleRequest(req, res) {
   if (method === 'GET'  && path === '/api/notifications')              return notificationRoutes.list(req, res);
   if (method === 'GET'  && path === '/api/notifications/unread-count') return notificationRoutes.unreadCount(req, res);
   if (method === 'POST' && path === '/api/notifications/mark-seen')    return notificationRoutes.markSeen(req, res);
+
+  // ---- Presence (who's active right now) -----------------------------------
+  if (method === 'POST' && path === '/api/presence/heartbeat') return presenceRoutes.heartbeat(req, res);
+  if (method === 'GET'  && path === '/api/presence/active')    return presenceRoutes.getActive(req, res);
 
   // ---- User management (admin only) ---------------------------------------
   if (method === 'GET'  && path === '/api/users') return userRoutes.list(req, res);
@@ -246,6 +251,10 @@ async function handleRequest(req, res) {
   // ---- Data room ----------------------------------------------------------
   if (params = match('/api/projects/:id/dataroom', path)) {
     if (method === 'GET') return dataroomRoutes.getDataroom(req, res, params);
+  }
+
+  if (params = match('/api/projects/:id/presence', path)) {
+    if (method === 'GET') return projectRoutes.getProjectPresence(req, res, params);
   }
 
   // ---- RACI matrix --------------------------------------------------------

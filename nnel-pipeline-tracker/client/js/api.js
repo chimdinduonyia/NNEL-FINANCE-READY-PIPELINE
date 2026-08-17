@@ -221,6 +221,40 @@ const api = {
         });
       });
     }).catch(() => {});
+
+    this.startPresenceHeartbeat();
+  },
+
+  // Pings "I'm here" once immediately and then every 60s for as long as this
+  // page stays open — see server/routes/presence.js for what "active" means.
+  // Called once from initSidebar(), so every authenticated page gets it for
+  // free without needing its own setup.
+  startPresenceHeartbeat() {
+    const HEARTBEAT_MS = 60000;
+    const beat = () => this.post('/api/presence/heartbeat', {}).catch(() => {});
+    beat();
+    setInterval(beat, HEARTBEAT_MS);
+  },
+
+  /**
+   * Renders a Teams/Google-Docs-style overlapping avatar stack from a list
+   * of { full_name } objects. Caps how many circles show and folds the rest
+   * into a "+N" badge.
+   */
+  buildAvatarStack(users, { max = 6, emptyText = 'No one else is active right now' } = {}) {
+    if (!users || users.length === 0) {
+      return `<div class="avatar-stack-empty">${this.fmt.escape(emptyText)}</div>`;
+    }
+    const shown    = users.slice(0, max);
+    const overflow = users.length - shown.length;
+    const items = shown.map(u => `
+      <div class="avatar-stack-item" title="${this.fmt.escape(u.full_name)}">
+        ${this.fmt.escape(u.full_name.trim().charAt(0).toUpperCase())}
+      </div>`).join('');
+    const moreBadge = overflow > 0
+      ? `<div class="avatar-stack-item avatar-stack-more" title="${overflow} more active">+${overflow}</div>`
+      : '';
+    return `<div class="avatar-stack">${items}${moreBadge}</div>`;
   },
 
   // Shared icon set — geometric line icons (stroke=currentColor, square

@@ -817,6 +817,33 @@ textarea { resize: vertical; min-height: 80px; }
 .brief-value { font-size: 14px; font-weight: 700; color: var(--gray-900); }
 .brief-value .brief-sub { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 
+/* Presence — Teams/Google-Docs-style overlapping avatar stack of who's
+   currently active (dashboard: portal-wide; project view: project members) */
+.presence-row { display: flex; align-items: center; gap: 12px; }
+.presence-label { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.avatar-stack { display: flex; align-items: center; }
+.avatar-stack-item {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--green-700);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  border: 2px solid var(--bg);
+  margin-left: -8px;
+  flex-shrink: 0;
+  cursor: default;
+  transition: transform 0.1s;
+}
+.avatar-stack-item:first-child { margin-left: 0; }
+.avatar-stack-item:hover { transform: translateY(-3px); z-index: 5; }
+.avatar-stack-more { background: var(--gray-400); font-size: 11px; }
+.avatar-stack-empty { font-size: 13px; color: var(--text-muted); }
+
 /* Pipeline stage strip */
 .pipeline-strip {
   background: var(--bg);

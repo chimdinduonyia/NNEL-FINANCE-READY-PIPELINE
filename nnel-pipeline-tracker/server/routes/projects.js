@@ -24,6 +24,7 @@ const { sendJSON, sendError } = require('../utils/response');
 const { readBody } = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
 const stageService = require('../services/stageService');
+const { ACTIVE_WINDOW_MS } = require('./presence');
 
 const VALID_ROLES = ['project_lead', 'contributor', 'gate_approver', 'reviewer', 'observer'];
 const VALID_WORKSTREAMS = ['technical', 'commercial', 'finance', 'legal', 'risk', 'esg', 'administrative', 'external'];
@@ -213,6 +214,35 @@ async function getRecent(req, res) {
     [user.id, canSeeAll ? 1 : 0, user.id]
   );
 
+  sendJSON(res, 200, rows);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:id/presence
+// Members of this project who are currently active (see routes/presence.js
+// for what "active" means and why the comparison uses an app-generated
+// timestamp rather than SQL's NOW()).
+// ---------------------------------------------------------------------------
+async function getProjectPresence(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+
+  const projectId = parseInt(params.id, 10);
+  if (!projectId) return sendError(res, 400, 'Invalid project id');
+
+  if (!await canViewProject(user.id, user.system_role, projectId)) {
+    return sendError(res, 403, 'Forbidden');
+  }
+
+  const since = new Date(Date.now() - ACTIVE_WINDOW_MS);
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.full_name, u.system_role, pm.role AS project_role
+     FROM users u
+     JOIN project_members pm ON pm.user_id = u.id AND pm.project_id = ?
+     WHERE u.is_active = 1 AND u.last_active_at > ?
+     ORDER BY u.full_name ASC`,
+    [projectId, since]
+  );
   sendJSON(res, 200, rows);
 }
 
@@ -612,4 +642,4 @@ async function updateMember(req, res, params) {
   }
 }
 
-module.exports = { create, list, getRecent, getOne, update, addMember, removeMember, deleteProject, updateMember };
+module.exports = { create, list, getRecent, getProjectPresence, getOne, update, addMember, removeMember, deleteProject, updateMember };

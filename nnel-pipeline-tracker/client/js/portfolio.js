@@ -24,8 +24,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupNewProjectModal();
   }
 
+  renderActiveNow();
   await refresh();
 });
+
+// ---------------------------------------------------------------------------
+// Active Now — portal-wide presence, visible to everyone on the dashboard
+// ---------------------------------------------------------------------------
+async function renderActiveNow() {
+  const el = document.getElementById('active-now-stack');
+  try {
+    const users = await api.get('/api/presence/active');
+    el.innerHTML = api.buildAvatarStack(users, { emptyText: 'No one else is active right now' });
+  } catch {
+    el.innerHTML = '<div class="text-sm text-muted">Could not load</div>';
+  }
+}
 
 async function refresh() {
   [allProjects, kpis] = await Promise.all([
