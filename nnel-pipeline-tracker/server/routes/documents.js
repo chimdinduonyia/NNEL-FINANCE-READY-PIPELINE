@@ -17,11 +17,26 @@ const auditLog = require('../services/auditLog');
 
 const VALID_STATUSES = ['outstanding', 'draft', 'submitted', 'approved', 'superseded'];
 
+// Shown whenever canWriteDocument() rejects a write. Deliberately spells out
+// the admin case explicitly — confirmed with the owner (2026-08-18) that this
+// is intentional design, not a bug: system_role='admin' is unconditionally
+// blocked from writing project data, even if that same account also holds a
+// project_lead/contributor role on the project — same governance principle
+// as canEditWorkingData() for checklist ticks. Admins manage the system
+// (users, templates); hands-on project work needs a separate non-admin
+// account with a project role. The bare "Forbidden" this replaced gave no
+// hint why, which is what actually caused the confusion.
+const FORBIDDEN_DOCUMENT_WRITE_MSG =
+  'Forbidden — only the Project Lead, or a Contributor for their own uploads, can write documents. ' +
+  'Admin accounts manage the system, not project data, even if the same account also holds a project role — ' +
+  'use a separate project-role account for hands-on project work.';
+
 // ---------------------------------------------------------------------------
 // Permission helper for document writes.
 // Project Lead can manage all documents.
 // Contributor can add/update documents they uploaded.
-// Others (approver, reviewer, observer): read-only.
+// Others (approver, reviewer, observer, admin): read-only — see
+// FORBIDDEN_DOCUMENT_WRITE_MSG above for why admin is included here.
 // ---------------------------------------------------------------------------
 async function canWriteDocument(userId, systemRole, projectId, existingDoc = null) {
   if (systemRole === 'admin') return false; // admins manage the system, not project data
@@ -90,7 +105,7 @@ async function create(req, res, params) {
   if (!projectId) return sendError(res, 400, 'Invalid project id');
 
   if (!await canWriteDocument(user.id, user.system_role, projectId)) {
-    return sendError(res, 403, 'Forbidden');
+    return sendError(res, 403, FORBIDDEN_DOCUMENT_WRITE_MSG);
   }
 
   let body;
@@ -251,7 +266,7 @@ async function update(req, res, params) {
   // Other field changes use the existing write-permission check
   const hasOtherChanges = ['title', 'file_ref', 'notes'].some(f => body[f] !== undefined);
   if (hasOtherChanges && !await canWriteDocument(user.id, user.system_role, projectId, doc)) {
-    return sendError(res, 403, 'Forbidden');
+    return sendError(res, 403, FORBIDDEN_DOCUMENT_WRITE_MSG);
   }
 
   const allowed = ['title', 'status', 'file_ref', 'notes'];
