@@ -257,7 +257,13 @@ function setupStageNav(stripEl) {
   const rightBtn   = document.getElementById('stage-nav-right');
   if (!viewportEl || !leftBtn || !rightBtn) return;
 
-  const maxOffset = Math.max(0, stripEl.scrollWidth - viewportEl.clientWidth);
+  // clientWidth includes the viewport's own left/right padding (the side
+  // allowance the nav buttons sit in) — subtract it to compare like-for-like
+  // against the strip's natural width.
+  const viewportStyle = getComputedStyle(viewportEl);
+  const sidePadding   = parseFloat(viewportStyle.paddingLeft) + parseFloat(viewportStyle.paddingRight);
+  const availableWidth = viewportEl.clientWidth - sidePadding;
+  const maxOffset = Math.max(0, stripEl.scrollWidth - availableWidth);
 
   if (maxOffset <= 0) {
     stageScrollOffset = 0;

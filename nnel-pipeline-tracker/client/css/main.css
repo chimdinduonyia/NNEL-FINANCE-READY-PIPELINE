@@ -850,11 +850,18 @@ textarea { resize: vertical; min-height: 80px; }
   border-bottom: 1px solid var(--border);
   padding: 20px 0;
 }
-/* No horizontal scroll -- the viewport clips a fixed-width track and the
-   »/« buttons shift it left/right one stage at a time via transform, so
-   the strip stays readable even once there are many stages. */
-.stage-strip-wrap { display: flex; align-items: center; gap: 8px; }
-.stage-strip-viewport { flex: 1; min-width: 0; overflow: hidden; }
+/* Full width when the stages fit (the normal case — nodes grow to fill
+   the row exactly like before), and only when they genuinely don't fit
+   does the row overflow and the hover-revealed »/« pair start doing
+   anything. No horizontal scrollbar either way. */
+.stage-strip-wrap { position: relative; }
+.stage-strip-viewport {
+  overflow: hidden;
+  /* Side allowance for the nav buttons to sit in, and a little vertical
+     room so the selected-stage ring (painted outside the dot's own box)
+     doesn't get clipped by overflow:hidden. */
+  padding: 6px 34px;
+}
 .stage-strip {
   display: flex;
   align-items: flex-start;
@@ -862,7 +869,9 @@ textarea { resize: vertical; min-height: 80px; }
   transition: transform 0.25s ease;
 }
 .stage-nav-btn {
-  flex-shrink: 0;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
   width: 30px;
   height: 30px;
   border-radius: 50%;
@@ -874,11 +883,17 @@ textarea { resize: vertical; min-height: 80px; }
   justify-content: center;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 10;
 }
+.stage-strip-wrap:hover .stage-nav-btn:not(.hidden) { opacity: 1; pointer-events: auto; }
 .stage-nav-btn:hover { background: var(--gray-100); color: var(--gray-900); }
+#stage-nav-left  { left: 0; }
+#stage-nav-right { right: 0; }
 .stage-node {
-  flex: 0 0 130px;
-  width: 130px;
+  flex: 1 0 130px;
   display: flex;
   flex-direction: column;
   align-items: center;
