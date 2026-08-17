@@ -188,9 +188,10 @@ async function recall(req, res, params) {
 //
 // Gate Approver records a GO, Conditional, or NO-GO decision.
 //
-// For chained gates (Gate 1, Gate 3 >$50M), each approver in the chain
-// calls this endpoint in turn. canApproveGate() enforces the ordering —
-// the second approver is blocked until the first has signed.
+// For chained gates (any stage with a multi-signer chain configured in the
+// template editor, e.g. Gate 1's default ED-CAM → MD-NNEL), each approver in
+// the chain calls this endpoint in turn. canApproveGate() enforces the
+// ordering — the second approver is blocked until the first has signed.
 //
 // Stage advancement:
 //   GO + last in chain → stage 'approved', next stage opened
@@ -198,9 +199,6 @@ async function recall(req, res, params) {
 //   Conditional        → stage 'conditional', conditions recorded (closed in Step 4)
 //   NO-GO              → stage 'rejected'
 //
-// NOTE — Stage 4 (First Disbursement) has a special attestation flow
-// (Project Lead + Finance verification) not covered by the standard
-// gate_approver path. It is implemented as a dedicated flow in Step 4.
 // ---------------------------------------------------------------------------
 async function recordDecision(req, res, params) {
   const user = await requireLogin(req, res);
@@ -299,9 +297,10 @@ async function recordDecision(req, res, params) {
   try {
     await conn.beginTransaction();
 
-    // Determine the authority to record.
-    // Stage 4 attestation uses NULL (no DOA tier); standard gates use the
-    // approver's authority level derived from the chain position.
+    // Determine the authority to record — the approver's authority level
+    // derived from their position in the chain. Falls back to NULL only if
+    // `required` were somehow empty (shouldn't happen for a configured or
+    // defaulted stage, but the column stays nullable as a safety net).
     const recordedAuthority = required[chainPosition - 1] ?? null;
 
     // INSERT the gate decision. The DB grant prevents UPDATE/DELETE on this table.

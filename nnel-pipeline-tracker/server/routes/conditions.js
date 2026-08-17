@@ -269,21 +269,23 @@ async function reopenStage(req, res, params) {
   if (user.system_role !== 'admin') {
     const member = await getProjectMember(projectId, user.id);
 
-    // Find the highest authority that signed in the most recent review round
-    const [[topSigner]] = await pool.execute(
+    // Find the highest-ranking authority that signed in the most recent review
+    // round. Ranking is done in JS against AUTHORITY_RANK — the single source
+    // of truth for authority order — rather than a separate SQL CASE, so this
+    // can never silently disagree with the rank table used for the actual
+    // comparison below. (Prior to 2026-08-17 this used its own inline SQL
+    // ranking that disagreed with AUTHORITY_RANK on whether m3_md_nnel
+    // outranks m4_ed_cam — see DOA_SPEC.md §1. Fixed by removing the
+    // duplicate ranking entirely.)
+    const [signers] = await pool.execute(
       `SELECT authority FROM gate_decisions
-       WHERE project_id = ? AND stage_number = ? AND review_round = ?
-       ORDER BY (CASE authority
-         WHEN 'm1_nnpc'    THEN 6
-         WHEN 'm2_evp'     THEN 5
-         WHEN 'nnel_board' THEN 4
-         WHEN 'm3_md_nnel' THEN 3
-         WHEN 'm4_ed_cam'  THEN 2
-         WHEN 'slt_mtc'    THEN 1
-         ELSE 0 END) DESC
-       LIMIT 1`,
+       WHERE project_id = ? AND stage_number = ? AND review_round = ? AND authority IS NOT NULL`,
       [projectId, stageNumber, stage.review_round]
     );
+    const topSigner = signers.reduce((top, row) => {
+      const rank = AUTHORITY_RANK[row.authority] ?? 0;
+      return rank > (AUTHORITY_RANK[top?.authority] ?? -1) ? row : top;
+    }, null);
 
     if (topSigner) {
       const required = AUTHORITY_RANK[topSigner.authority] ?? 0;

@@ -482,9 +482,13 @@ async function publishVersion(req, res, params) {
 }
 
 // ---------------------------------------------------------------------------
-// Gate approver configuration — configurable stages only (NOT 2 or 3)
+// Gate approver configuration — every stage (0–5) is admin-configurable.
+//
+// CHANGED 2026-08-17: Stages 2 and 3 used to be excluded here because their
+// routing was governed by hardcoded CAPEX thresholds. That routing has been
+// removed (see DOA_SPEC.md) — admins now configure every gate's approver
+// chain the same way, trusted to follow NNEL's real FRP procedure themselves.
 // ---------------------------------------------------------------------------
-const CAPEX_GOVERNED_STAGES = [2, 3];
 const GATE_AUTHORITY_VALUES = ['m1_nnpc','m2_evp','nnel_board','m3_md_nnel','slt_mtc','m4_ed_cam'];
 
 /**
@@ -529,9 +533,6 @@ async function setGateApprovers(req, res, params) {
   try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
 
   const { stage_number, chain } = body;
-  if (CAPEX_GOVERNED_STAGES.includes(Number(stage_number))) {
-    return sendError(res, 400, `Stage ${stage_number} gate routing is governed by CAPEX thresholds and cannot be configured.`);
-  }
   if (!Array.isArray(chain) || chain.length === 0) {
     return sendError(res, 400, 'chain must be a non-empty array of authority values');
   }
@@ -663,10 +664,6 @@ async function clearGateApprovers(req, res, params) {
 
   const versionId   = parseInt(params.versionId, 10);
   const stageNumber = parseInt(params.stage, 10);
-
-  if (CAPEX_GOVERNED_STAGES.includes(stageNumber)) {
-    return sendError(res, 400, `Stage ${stageNumber} uses CAPEX-based routing and cannot be cleared.`);
-  }
 
   const conn = await pool.getConnection();
   try {

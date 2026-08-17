@@ -260,41 +260,39 @@ async function canAttachCertification(userId, systemRole, projectId) {
 }
 
 // ---------------------------------------------------------------------------
-// Gate-routing DOA thresholds (spec §3)
+// Gate-routing DOA (spec §3)
 // Returns an array of approver_authority values that are valid for this gate.
+//
+// CHANGED 2026-08-17 (explicit owner decision, see DOA_SPEC.md): gate routing
+// used to hardcode CAPEX-threshold rules for Stages 2 and 3 ($50M → Board).
+// That has been removed. Every stage (0–5) is now a fully admin-configured
+// gate-approver chain, stored in template_gate_approvers per template
+// version — the same mechanism that already existed for Stages 0/1/4/5.
+// Admins are trusted to route gates in line with NNEL's actual FRP procedure
+// themselves; the system no longer enforces a dollar threshold in code. The
+// `capexUSD` parameter is kept on the function signature (some callers still
+// pass a project's locked-in submission CAPEX) but is no longer used for
+// routing — CAPEX remains a stored, reportable figure, just not a routing
+// input.
 // ---------------------------------------------------------------------------
 
 /**
  * Returns the ordered list of authority levels required to sign a gate.
  *
- * CAPEX-governed gates (2 and 3) always use the hardcoded DOA thresholds
- * regardless of any template configuration — this is non-negotiable because
- * the thresholds define which authority body has constitutional sign-off power
- * based on the project's financial size.
- *
- * All other gates (0, 1, 4, 5) first look up the template configuration for
- * the project, then fall back to the built-in defaults if no configuration
- * exists. Passing projectId is optional — callers that only need a display
- * hint (e.g. before a project exists) may omit it.
+ * Looks up the template's configured chain for this stage first; if none is
+ * configured, falls back to a built-in default so unconfigured stages still
+ * have a sane approver rather than nobody able to sign. Passing projectId is
+ * optional — callers that only need a display hint (e.g. before a project
+ * exists) may omit it, in which case only the built-in default is returned.
  *
  * @param {number}      stageNumber   0–5
- * @param {number|null} capexUSD      CAPEX locked at submission (for gates 2 & 3)
+ * @param {number|null} _capexUSD     Unused for routing — kept for signature
+ *                                    compatibility with existing callers.
  * @param {number|null} [projectId]   Optional — used to look up template config
  * @returns {Promise<string[]>}       Ordered authority array
  */
-async function getRequiredAuthority(stageNumber, capexUSD, projectId = null) {
-  const capex = Number(capexUSD) || 0;
-
-  // ---- CAPEX-governed gates: always use hardcoded thresholds ----
-  if (stageNumber === 2) {
-    return capex < 50_000_000 ? ['slt_mtc'] : ['nnel_board'];
-  }
-  if (stageNumber === 3) {
-    if (capex <= 50_000_000) return ['nnel_board'];
-    return ['nnel_board', 'm1_nnpc'];
-  }
-
-  // ---- Template-configurable gates (0, 1, 4, 5) ----
+async function getRequiredAuthority(stageNumber, _capexUSD, projectId = null) {
+  // ---- Template-configurable gates (all of 0–5) ----
   // Try DB config first if a projectId is available
   if (projectId) {
     try {
@@ -313,10 +311,16 @@ async function getRequiredAuthority(stageNumber, capexUSD, projectId = null) {
     }
   }
 
-  // Built-in defaults (used when no template config is found)
+  // Built-in defaults (used when no template config is found). Stages 2 and 3
+  // keep the same single-signer defaults they had under the old CAPEX-low
+  // branch, purely as a safety net for template versions nobody has
+  // configured yet — they carry no special DOA meaning anymore and an admin
+  // can freely reconfigure them via the template editor.
   switch (stageNumber) {
     case 0: return ['m3_md_nnel'];
     case 1: return ['m4_ed_cam', 'm3_md_nnel'];
+    case 2: return ['slt_mtc'];
+    case 3: return ['nnel_board'];
     case 4: return ['m3_md_nnel'];
     case 5: return ['m4_ed_cam'];
     default: return [];

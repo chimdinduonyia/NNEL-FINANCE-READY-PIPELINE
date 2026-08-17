@@ -54,11 +54,12 @@ async function create(req, res) {
     return sendError(res, 400, 'name is required');
   }
 
-  // CAPEX: capex_usd stays the always-USD figure the gate-routing DOA
-  // thresholds compare against (see getRequiredAuthority). When the deal is
-  // quoted in NGN, the USD-equivalent must be supplied explicitly -- never
+  // CAPEX: capex_usd stays the always-USD figure used for Board/lender-facing
+  // reporting (CAPEX no longer drives gate routing — see DOA_SPEC.md — but it
+  // remains a governance figure people rely on). When the deal is quoted in
+  // NGN, the USD-equivalent must be supplied explicitly -- never
   // auto-converted, so there's no guessed exchange rate sitting behind a
-  // Board-facing routing decision.
+  // number the Board sees.
   const currency = capex_currency === 'NGN' ? 'NGN' : 'USD';
   const amount = parseFloat(capex_amount);
   if (isNaN(amount) || amount < 0) {
@@ -69,7 +70,7 @@ async function create(req, res) {
     capex = parseFloat(capex_usd_equivalent);
     if (isNaN(capex) || capex < 0) {
       return sendError(res, 400,
-        'A USD-equivalent CAPEX value is required when quoting in NGN, so the gate-routing threshold check has a USD figure to compare against');
+        'A USD-equivalent CAPEX value is required when quoting in NGN, for accurate Board/lender reporting');
     }
   } else {
     capex = amount;
@@ -361,7 +362,7 @@ async function update(req, res, params) {
       capexUsd = parseFloat(body.capex_usd_equivalent);
       if (isNaN(capexUsd) || capexUsd < 0) {
         return sendError(res, 400,
-          'A USD-equivalent CAPEX value is required when quoting in NGN, so the gate-routing threshold check has a USD figure to compare against');
+          'A USD-equivalent CAPEX value is required when quoting in NGN, for accurate Board/lender reporting');
       }
     } else {
       capexUsd = amount;

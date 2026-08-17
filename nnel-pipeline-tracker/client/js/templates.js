@@ -34,7 +34,8 @@ const GATE_AUTH_OPTIONS = [
   { value: 'm4_ed_cam',  label: 'M4: ED-CAM' },
 ];
 const GATE_AUTH_LABEL = Object.fromEntries(GATE_AUTH_OPTIONS.map(a => [a.value, a.label]));
-const CAPEX_GOVERNED  = [2, 3]; // These stages use CAPEX-threshold routing — not configurable
+// CHANGED 2026-08-17: CAPEX-threshold routing removed (see DOA_SPEC.md) — every
+// stage 0-5 is now an admin-configurable gate-approver chain, same as the rest.
 
 document.addEventListener('DOMContentLoaded', async () => {
   currentUser = await api.getMe();
@@ -688,16 +689,6 @@ async function handleAddItem(e) {
 // ===========================================================================
 
 function renderGateChainSection(stageNum, chain) {
-  if (CAPEX_GOVERNED.includes(stageNum)) {
-    return `<div class="gate-chain-config">
-      <div class="gate-chain-title"><span style="vertical-align:middle;margin-right:6px;">${api.icons.lock}</span>Gate Approver Chain</div>
-      <p class="text-sm text-muted" style="margin-top:4px;">
-        Stage ${stageNum} routing is determined by the project's CAPEX at submission
-        (DOA threshold rules) and cannot be configured here.
-      </p>
-    </div>`;
-  }
-
   const chainHtml = chain.length > 0
     ? chain.map((entry, i) => `
         <span style="display:inline-flex;align-items:center;gap:4px;">
