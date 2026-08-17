@@ -42,17 +42,26 @@ CREATE TABLE IF NOT EXISTS template_stages (
 -- Historical/inactive versions get seeded too — old projects locked to
 -- those versions still need stage names for their read-only history views.
 
+-- The SELECT is wrapped in its own derived table (`combined`) before the
+-- ON DUPLICATE KEY UPDATE. Without this wrapper, MySQL's parser reads the
+-- CROSS JOIN's alias immediately followed by "ON DUPLICATE..." as an attempt
+-- to supply a join condition for the CROSS JOIN itself (MySQL treats CROSS
+-- JOIN as accepting an ON clause, same as INNER JOIN) and fails with a syntax
+-- error right before "KEY UPDATE" -- a genuine MySQL parser gotcha, not a
+-- typo. Wrapping the join in a derived table removes the ambiguity.
 INSERT INTO template_stages (template_version_id, stage_number, name)
-SELECT tv.id, s.stage_number, s.name
-FROM template_versions tv
-CROSS JOIN (
-  SELECT 0 AS stage_number, 'Opportunity Screening'  AS name UNION ALL
-  SELECT 1, 'Preliminary Assessment' UNION ALL
-  SELECT 2, 'Full Feasibility' UNION ALL
-  SELECT 3, 'Financial Close / FID' UNION ALL
-  SELECT 4, 'First Disbursement' UNION ALL
-  SELECT 5, 'COD / Commissioning'
-) s
+SELECT * FROM (
+  SELECT tv.id AS template_version_id, s.stage_number, s.name
+  FROM template_versions tv
+  CROSS JOIN (
+    SELECT 0 AS stage_number, 'Opportunity Screening'  AS name UNION ALL
+    SELECT 1, 'Preliminary Assessment' UNION ALL
+    SELECT 2, 'Full Feasibility' UNION ALL
+    SELECT 3, 'Financial Close / FID' UNION ALL
+    SELECT 4, 'First Disbursement' UNION ALL
+    SELECT 5, 'COD / Commissioning'
+  ) s
+) AS combined
 ON DUPLICATE KEY UPDATE name = template_stages.name;   -- no-op if already seeded (idempotent re-run)
 
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON nnel_frp.template_stages TO 'nnel_app'@'localhost';
