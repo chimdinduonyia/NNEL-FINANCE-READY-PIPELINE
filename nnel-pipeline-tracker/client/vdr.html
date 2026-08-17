@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VDR | NNEL Pipeline Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .vdr-project-row {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 16px; border-bottom:1px solid var(--border); cursor:pointer;
+    }
+    .vdr-project-row:last-child { border-bottom:none; }
+    .vdr-project-row:hover { background:var(--gray-50); }
+    .vdr-project-name { font-weight:700; font-size:14px; }
+    .vdr-project-meta { font-size:12px; color:var(--text-muted); margin-top:2px; }
+    .vdr-doc-panel { background:var(--gray-50); border-bottom:1px solid var(--border); }
+    .vdr-doc-row {
+      display:grid; grid-template-columns:100px 1fr 130px 140px 140px;
+      gap:8px; align-items:center; padding:9px 16px 9px 40px;
+      border-bottom:1px solid var(--border); font-size:13px;
+    }
+    .vdr-doc-row:last-child { border-bottom:none; }
+    .vdr-doc-head {
+      display:grid; grid-template-columns:100px 1fr 130px 140px 140px;
+      gap:8px; padding:8px 16px 8px 40px; font-size:11px; font-weight:700;
+      text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="app-content">
+
+  <main class="container page-main">
+    <div class="flex items-center justify-between" style="margin-bottom:20px;">
+      <div>
+        <h1 style="font-size:24px;font-weight:800;">VDR</h1>
+        <p class="text-muted text-sm mt-4">Every project's document register in one place. Click a project to see its documents.</p>
+      </div>
+    </div>
+
+    <div class="card" id="vdr-card" style="overflow:hidden;">
+      <div class="loading">Loading…</div>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/vdr.js"></script>
+
+    </div>
+  </div>
+</body>
+</html>

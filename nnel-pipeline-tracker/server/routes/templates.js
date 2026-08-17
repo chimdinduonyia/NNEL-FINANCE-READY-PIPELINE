@@ -9,12 +9,21 @@
  * POST   /api/templates/:versionId/items         — add a new item (admin)
  * PATCH  /api/templates/:versionId/items/:itemId — edit item; auto-forks if projects exist (admin)
  * PATCH  /api/templates/:versionId/items/:itemId/status — soft-deactivate/restore (admin)
- * POST   /api/templates/:versionId/publish       — manually fork to a new version (admin)
+ * POST   /api/templates/:versionId/fork          — manually fork to a new active version (admin)
+ * PATCH  /api/templates/:versionId/publish       — publish a draft (admin) — see is_draft below
  *
  * VERSIONING RULE: an item edit on a version that has in-flight projects
  * always creates a new version (fork) rather than mutating the original.
  * Only new projects pick up the updated version. Existing projects keep
  * their locked template_version string unchanged.
+ *
+ * DRAFT/PUBLISH (2026-08-17): a version created via "+ New" starts as a
+ * draft (is_draft = 1) — invisible to the "+ New Project" template picker
+ * (GET /api/templates?published_only=true) and never selectable for a real
+ * project, so every edit to it applies in place (project_count is always 0
+ * for a draft). PATCH .../publish flips is_draft to 0. Publishing does NOT
+ * also set the version active — that stays the separate "Set as Active"
+ * action. setActive() refuses to activate a version that's still a draft.
  */
 
 const pool     = require('../db');
@@ -25,6 +34,25 @@ const auditLog = require('../services/auditLog');
 const { MAX_STAGE_NUMBER } = require('../constants');
 
 const VALID_PILLARS = ['technical','commercial','finance','legal','environmental','risk','esg'];
+
+// Standard VDR folder set — same 10 folders every original template version
+// was seeded with (002/006/007_seed_template_*.sql). A version created via
+// "start empty" used to get none at all, which is why the evidence-note
+// modal's folder dropdown could come up empty (see migration 026). Every new
+// "start empty" version now gets this set too, so that can't recur. Not
+// stage/gate-specific — same folders apply across the whole project.
+const DEFAULT_VDR_FOLDERS = [
+  { code: '00', name: 'Project Overview' },
+  { code: '01', name: 'Corporate & Legal' },
+  { code: '02', name: 'Technical & Engineering' },
+  { code: '03', name: 'Environmental & Social' },
+  { code: '04', name: 'Commercial & Offtake' },
+  { code: '05', name: 'Financial Model & Returns' },
+  { code: '06', name: 'Permits & Regulatory' },
+  { code: '07', name: 'Insurance' },
+  { code: '08', name: 'Land & Site' },
+  { code: '09', name: 'Other / Correspondence' },
+];
 
 // ---------------------------------------------------------------------------
 // Version-bump helper  '1.0' → '1.1'  'biofuels-1.0' → 'biofuels-1.1'
@@ -37,9 +65,19 @@ function bumpVersion(version) {
 // Fork a template version (clone all active items into a new version row).
 // Returns the new template_versions row.
 // Caller is responsible for the surrounding transaction.
+//
+// opts.asDraft (default false): every existing call site is the fork-on-edit
+// safety net (protecting in-flight projects from an edit to a version
+// they're using) and must keep behaving exactly as before — new version
+// immediately active, old one retired, is_draft = 0. The ONE place that
+// passes asDraft: true is createVersion()'s "copy items from" path, where
+// the whole point is a working copy nobody sees yet: is_active stays 0, the
+// source version is left alone, and is_draft = 1 until an explicit Publish.
 // ---------------------------------------------------------------------------
 // name is optional — if omitted the bumped version string is used as the name
-async function forkVersion(conn, sourceVersionId, userId, nameOverride = null) {
+async function forkVersion(conn, sourceVersionId, userId, nameOverride = null, opts = {}) {
+  const { asDraft = false } = opts;
+
   const [[src]] = await conn.execute(
     'SELECT version, name, technology, description FROM template_versions WHERE id = ?',
     [sourceVersionId]
@@ -60,18 +98,23 @@ async function forkVersion(conn, sourceVersionId, userId, nameOverride = null) {
 
   const newName = nameOverride || `${src.name || src.version} (edited)`;
 
-  // Create new version row; mark it active and retire the old version
+  // Create new version row. Fork-on-edit (asDraft=false, the default): mark
+  // it active immediately and retire the source, per the original spec'd
+  // behaviour. Draft copy (asDraft=true): stays inactive and undrafted-only-
+  // on-publish; the source is left exactly as it was.
   const [result] = await conn.execute(
-    `INSERT INTO template_versions (version, name, technology, description, is_active, created_by)
-     VALUES (?, ?, ?, ?, 1, ?)`,
-    [newVersionStr, newName, src.technology, src.description, userId]
+    `INSERT INTO template_versions (version, name, technology, description, is_active, is_draft, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [newVersionStr, newName, src.technology, src.description, asDraft ? 0 : 1, asDraft ? 1 : 0, userId]
   );
   const newVersionId = result.insertId;
 
-  await conn.execute(
-    'UPDATE template_versions SET is_active = 0 WHERE id = ?',
-    [sourceVersionId]
-  );
+  if (!asDraft) {
+    await conn.execute(
+      'UPDATE template_versions SET is_active = 0 WHERE id = ?',
+      [sourceVersionId]
+    );
+  }
 
   // Clone all active items to the new version (same codes, same content)
   await conn.execute(
@@ -128,14 +171,22 @@ async function listVersions(req, res) {
   if (!user) return;
   if (!['admin','project_manager'].includes(user.system_role)) return sendError(res, 403, 'Forbidden');
 
+  // ?published_only=true — used by the "+ New Project" template picker, so
+  // a draft nobody has published yet can never be selected for a real
+  // project. The template editor itself calls this without the flag, since
+  // it needs to see (and open) drafts to work on them.
+  const url = new URL(req.url, 'http://localhost');
+  const publishedOnly = url.searchParams.get('published_only') === 'true';
+
   const [rows] = await pool.execute(
-    `SELECT tv.id, tv.version, tv.name, tv.technology, tv.description, tv.is_active,
+    `SELECT tv.id, tv.version, tv.name, tv.technology, tv.description, tv.is_active, tv.is_draft,
             tv.created_at, tv.created_by, u.full_name AS created_by_name,
             (SELECT COUNT(*) FROM projects p
              WHERE p.template_version = tv.version
                AND p.status NOT IN ('completed','cancelled')) AS project_count
      FROM template_versions tv
      LEFT JOIN users u ON u.id = tv.created_by
+     ${publishedOnly ? 'WHERE tv.is_draft = 0' : ''}
      ORDER BY tv.technology, tv.id DESC`
   );
   sendJSON(res, 200, rows);
@@ -185,7 +236,7 @@ async function getItems(req, res, params) {
   if (!versionId) return sendError(res, 400, 'Invalid versionId');
 
   const [[tv]] = await pool.execute(
-    'SELECT id, version, technology, description, is_active FROM template_versions WHERE id = ?',
+    'SELECT id, version, technology, description, is_active, is_draft FROM template_versions WHERE id = ?',
     [versionId]
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
@@ -225,6 +276,7 @@ async function getItems(req, res, params) {
     technology:    tv.technology,
     description:   tv.description,
     is_active:     tv.is_active,
+    is_draft:      !!tv.is_draft,
     project_count: cnt,
     next_version:  bumpVersion(tv.version),
     stages:        Object.values(byStage),
@@ -466,11 +518,17 @@ async function setItemStatus(req, res, params) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/templates/:versionId/publish
-// Manually creates a new version as a fork of an existing one.
-// Used when the admin wants to prepare a new version proactively.
+// POST /api/templates/:versionId/fork
+// Manually creates a new version as a fork of an existing one, immediately
+// active (same fork-on-edit semantics as an in-place edit would trigger).
+// Used when the admin wants to prepare a new active version proactively,
+// without waiting for an edit to trigger it. NOT the same thing as
+// publishDraft() below — this always forks a whole new version; that one
+// just flips is_draft on a version that already exists.
+// (Route used to be POST .../publish before the 2026-08-17 draft/publish
+// feature claimed that name for something more literal.)
 // ---------------------------------------------------------------------------
-async function publishVersion(req, res, params) {
+async function manualFork(req, res, params) {
   const user = await requireLogin(req, res);
   if (!user) return;
   if (!['admin','project_manager'].includes(user.system_role)) return sendError(res, 403, 'Forbidden');
@@ -492,6 +550,46 @@ async function publishVersion(req, res, params) {
   } catch (err) {
     await conn.rollback();
     if (err.message.includes('already exists')) return sendError(res, 409, err.message);
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * PATCH /api/templates/:versionId/publish
+ * Publishes a draft: flips is_draft to 0 so it starts appearing in the
+ * "+ New Project" template picker. Deliberately does NOT also set it
+ * active — that stays the separate "Set as Active" action (owner's
+ * explicit choice, 2026-08-17), so publishing a draft can never silently
+ * swap out what new projects get by default.
+ */
+async function publishDraft(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+  if (!['admin','project_manager'].includes(user.system_role)) return sendError(res, 403, 'Forbidden');
+
+  const versionId = parseInt(params.versionId, 10);
+  if (!versionId) return sendError(res, 400, 'Invalid versionId');
+
+  const [[tv]] = await pool.execute(
+    'SELECT id, version, name, technology, is_draft FROM template_versions WHERE id = ?', [versionId]
+  );
+  if (!tv) return sendError(res, 404, 'Template version not found');
+  if (!tv.is_draft) return sendError(res, 400, 'This version is already published.');
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute('UPDATE template_versions SET is_draft = 0 WHERE id = ?', [versionId]);
+    await auditLog.log(conn, {
+      userId: user.id, action: 'template_draft_published',
+      detail: { version_id: versionId, version: tv.version, name: tv.name, technology: tv.technology },
+    });
+    await conn.commit();
+    sendJSON(res, 200, { published: true });
+  } catch (err) {
+    await conn.rollback();
     throw err;
   } finally {
     conn.release();
@@ -997,8 +1095,12 @@ async function createVersion(req, res) {
     let newVersionId, newVersionStr;
 
     if (source_version_id) {
-      // Fork an existing version with the provided name
-      const fork = await forkVersion(conn, parseInt(source_version_id, 10), user.id, name.trim());
+      // Fork an existing version with the provided name — a draft copy, not
+      // the fork-on-edit safety fork: stays inactive, source untouched, only
+      // becomes usable when explicitly published. Already inherits the
+      // source's VDR folders (forkVersion clones them) so nothing further
+      // to seed here.
+      const fork = await forkVersion(conn, parseInt(source_version_id, 10), user.id, name.trim(), { asDraft: true });
       newVersionId  = fork.id;
       newVersionStr = fork.version;
     } else {
@@ -1021,17 +1123,25 @@ async function createVersion(req, res) {
       }
 
       const [result] = await conn.execute(
-        `INSERT INTO template_versions (version, name, technology, is_active, created_by)
-         VALUES (?, ?, ?, 0, ?)`,
+        `INSERT INTO template_versions (version, name, technology, is_active, is_draft, created_by)
+         VALUES (?, ?, ?, 0, 1, ?)`,
         [baseVersion, name.trim(), technology, user.id]
       );
       newVersionId  = result.insertId;
       newVersionStr = baseVersion;
+
+      // Seed the standard VDR folder set — see DEFAULT_VDR_FOLDERS comment.
+      for (const f of DEFAULT_VDR_FOLDERS) {
+        await conn.execute(
+          'INSERT INTO template_vdr_folders (template_version_id, folder_code, name, sort_order) VALUES (?, ?, ?, ?)',
+          [newVersionId, f.code, f.name, DEFAULT_VDR_FOLDERS.indexOf(f)]
+        );
+      }
     }
 
     await auditLog.log(conn, {
       userId: user.id, action: 'template_version_created',
-      detail: { new_version_id: newVersionId, version: newVersionStr, name: name.trim(), technology, source_version_id: source_version_id || null },
+      detail: { new_version_id: newVersionId, version: newVersionStr, name: name.trim(), technology, source_version_id: source_version_id || null, is_draft: true },
     });
 
     await conn.commit();
@@ -1058,9 +1168,12 @@ async function setActive(req, res, params) {
   if (!versionId) return sendError(res, 400, 'Invalid versionId');
 
   const [[tv]] = await pool.execute(
-    'SELECT id, version, technology FROM template_versions WHERE id = ?', [versionId]
+    'SELECT id, version, technology, is_draft FROM template_versions WHERE id = ?', [versionId]
   );
   if (!tv) return sendError(res, 404, 'Template version not found');
+  if (tv.is_draft) {
+    return sendError(res, 409, 'This version is still a draft — publish it before setting it active.');
+  }
 
   const conn = await pool.getConnection();
   try {
@@ -1144,7 +1257,11 @@ async function deleteVersion(req, res, params) {
   try {
     await conn.beginTransaction();
 
-    // Delete in dependency order
+    // Delete in dependency order. template_stages must be cleared here too —
+    // it has a FOREIGN KEY on template_versions with no ON DELETE CASCADE, so
+    // leaving it out (as this endpoint did until 2026-08-17) makes the final
+    // DELETE below throw a constraint-violation 500 on any version that has
+    // stages defined, which is now every version.
     await conn.execute(
       'DELETE FROM template_gate_approvers WHERE template_version_id = ?', [versionId]
     );
@@ -1153,6 +1270,9 @@ async function deleteVersion(req, res, params) {
     );
     await conn.execute(
       'DELETE FROM template_vdr_folders WHERE template_version_id = ?', [versionId]
+    );
+    await conn.execute(
+      'DELETE FROM template_stages WHERE template_version_id = ?', [versionId]
     );
     await conn.execute(
       'DELETE FROM template_versions WHERE id = ?', [versionId]
@@ -1175,7 +1295,7 @@ async function deleteVersion(req, res, params) {
 
 module.exports = {
   listVersions, getActive, getItems, addItem, editItem, setItemStatus, setStageStatus,
-  publishVersion, createVersion, setActive, deleteVersion,
+  manualFork, publishDraft, createVersion, setActive, deleteVersion,
   getGateApprovers, setGateApprovers, clearGateApprovers,
   renameStage, addStage, reorderStage,
 };

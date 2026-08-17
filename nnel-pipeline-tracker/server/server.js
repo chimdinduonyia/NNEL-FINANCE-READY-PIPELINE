@@ -27,6 +27,7 @@ const memoRoutes      = require('./routes/memo');
 const userRoutes      = require('./routes/users');
 const notificationRoutes = require('./routes/notifications');
 const presenceRoutes  = require('./routes/presence');
+const vdrRoutes        = require('./routes/vdr');
 const { sendJSON, sendError } = require('./utils/response');
 
 const PORT       = Number(process.env.PORT) || 3000;
@@ -176,8 +177,11 @@ async function handleRequest(req, res) {
   if (params = match('/api/templates/:versionId/stages', path)) {
     if (method === 'POST') return templateRoutes.addStage(req, res, params);
   }
+  if (params = match('/api/templates/:versionId/fork', path)) {
+    if (method === 'POST') return templateRoutes.manualFork(req, res, params);
+  }
   if (params = match('/api/templates/:versionId/publish', path)) {
-    if (method === 'POST') return templateRoutes.publishVersion(req, res, params);
+    if (method === 'PATCH') return templateRoutes.publishDraft(req, res, params);
   }
 
   // ---- Template gate-approver configuration (configurable stages only) ----
@@ -287,6 +291,13 @@ async function handleRequest(req, res) {
     if (method === 'PATCH')  return documentRoutes.update(req, res, params);
     if (method === 'DELETE') return documentRoutes.remove(req, res, params);
   }
+
+  // ---- VDR (admin/PM cross-project document views) + personal footprint ---
+  if (method === 'GET' && path === '/api/vdr') return vdrRoutes.getAllProjects(req, res);
+  if (params = match('/api/vdr/:projectId', path)) {
+    if (method === 'GET') return vdrRoutes.getOneProject(req, res, params);
+  }
+  if (method === 'GET' && path === '/api/documents/mine') return vdrRoutes.getMine(req, res);
 
   // ---- Static files (non-API requests fall through here) ------------------
   if (!path.startsWith('/api/')) {

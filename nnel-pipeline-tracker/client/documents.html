@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documents | NNEL Pipeline Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .doc-list-row {
+      display:grid; grid-template-columns:1fr 160px 130px 120px 130px;
+      gap:8px; align-items:center; padding:11px 16px;
+      border-bottom:1px solid var(--border); font-size:13px;
+    }
+    .doc-list-row:last-child { border-bottom:none; }
+    .doc-list-head {
+      display:grid; grid-template-columns:1fr 160px 130px 120px 130px;
+      gap:8px; padding:9px 16px; font-size:11px; font-weight:700;
+      text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted);
+      background:var(--gray-50); border-bottom:1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="app-content">
+
+  <main class="container page-main">
+    <div class="flex items-center justify-between" style="margin-bottom:20px;">
+      <div>
+        <h1 style="font-size:24px;font-weight:800;">Documents</h1>
+        <p class="text-muted text-sm mt-4">Every document you've uploaded, across every project.</p>
+      </div>
+    </div>
+
+    <div class="card" id="documents-card" style="overflow:hidden;">
+      <div class="loading">Loading…</div>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/documents.js"></script>
+
+    </div>
+  </div>
+</body>
+</html>

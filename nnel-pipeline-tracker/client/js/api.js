@@ -90,6 +90,8 @@ const api = {
     const iconApproval  = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><rect x="2" y="1" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.4"/><polyline points="4.5,7 6,8.5 9.5,4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
     const iconTemplates = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><rect x="2" y="1" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.4"/><line x1="4.5" y1="5" x2="9.5" y2="5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><line x1="4.5" y1="11" x2="7.5" y2="11" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`;
     const iconUsers     = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="4.5" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 13C1.5 10 4 8 7 8s5.5 2 5.5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`;
+    const iconVault     = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="1.5" width="11" height="11" rx="1" stroke="currentColor" stroke-width="1.4"/><circle cx="7" cy="7" r="2.3" stroke="currentColor" stroke-width="1.4"/><line x1="7" y1="4.7" x2="7" y2="5.6" stroke="currentColor" stroke-width="1.2" stroke-linecap="square"/></svg>`;
+    const iconDocs      = `<svg width="16" height="16" viewBox="0 0 14 14" fill="none"><path d="M3 1.5h5.5L11 4v8.5H3V1.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8.5 1.5V4H11" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><line x1="4.8" y1="7" x2="9.2" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="square"/><line x1="4.8" y1="9.3" x2="9.2" y2="9.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="square"/></svg>`;
     const iconSignOut   = `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><polyline points="9.5,4.5 12.5,7 9.5,9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/><line x1="12.5" y1="7" x2="5" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/><polyline points="5,2 2,2 2,12 5,12" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
     const iconChevronsLeft  = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="8.5,2.5 3.5,7 8.5,11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/><polyline points="12,2.5 7,7 12,11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
     const iconChevronsRight = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="5.5,2.5 10.5,7 5.5,11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/><polyline points="2,2.5 7,7 2,11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/></svg>`;
@@ -104,6 +106,13 @@ const api = {
         match: p => p === '/approvals.html', visible: user.is_gate_approver === true },
       { href: '/templates.html', label: 'Templates', icon: iconTemplates,
         match: p => p === '/templates.html', visible: ['admin','project_manager'].includes(user.system_role) },
+      // Admins and PMs get the portfolio-wide VDR (every project's document
+      // register); everyone else gets their own personal upload footprint.
+      // Matches how PMs are treated everywhere else in the app.
+      { href: '/vdr.html', label: 'VDR', icon: iconVault,
+        match: p => p === '/vdr.html', visible: ['admin','project_manager'].includes(user.system_role) },
+      { href: '/documents.html', label: 'Documents', icon: iconDocs,
+        match: p => p === '/documents.html', visible: !['admin','project_manager'].includes(user.system_role) },
       { href: '/users.html', label: 'Users', icon: iconUsers,
         match: p => p === '/users.html', visible: user.system_role === 'admin' },
     ].filter(i => i.visible);

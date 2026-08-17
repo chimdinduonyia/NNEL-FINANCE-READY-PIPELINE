@@ -289,7 +289,10 @@ function setupNewProjectModal() {
     if (!techEnum) { sel.innerHTML = '<option value="">Select technology first</option>'; return; }
 
     if (!allTemplateVersions) {
-      try { allTemplateVersions = await api.get('/api/templates'); }
+      // published_only: drafts (still being built in the template editor)
+      // must never be selectable for a real project — see DRAFT/PUBLISH in
+      // server/routes/templates.js.
+      try { allTemplateVersions = await api.get('/api/templates?published_only=true'); }
       catch { allTemplateVersions = []; }
     }
 

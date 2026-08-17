@@ -697,8 +697,8 @@ async function handleCheckToggle(cb, stageNum) {
   const itemId  = cb.dataset.itemId;
   const checked = cb.checked;
 
-  let evidenceNote = '';
-  let docToCreate  = null;
+  let evidenceNote  = '';
+  let docsToCreate  = [];
 
   if (checked) {
     const itemEl   = cb.closest('.checklist-item');
@@ -707,15 +707,15 @@ async function handleCheckToggle(cb, stageNum) {
     const result = await showEvidenceModal({ itemCode, itemDesc, stageNum });
     if (result.cancelled) { cb.checked = false; return; }
     evidenceNote = result.evidenceNote;
-    docToCreate  = result.document;
+    docsToCreate = result.documents ?? [];
   }
 
   cb.disabled = true;
   try {
-    if (docToCreate) {
+    for (const doc of docsToCreate) {
       await api.post(`/api/projects/${projectId}/documents`, {
-        title: docToCreate.title, folder_code: docToCreate.folder,
-        stage_number: stageNum, file_ref: docToCreate.fileRef || null,
+        title: doc.title, folder_code: doc.folder,
+        stage_number: stageNum, file_ref: doc.fileRef || null,
         status: 'submitted',
       });
     }
@@ -747,10 +747,10 @@ async function handleEvidenceEdit(btn) {
 
   btn.disabled = true;
   try {
-    if (result.document) {
+    for (const doc of result.documents ?? []) {
       await api.post(`/api/projects/${projectId}/documents`, {
-        title: result.document.title, folder_code: result.document.folder,
-        stage_number: stageNum, file_ref: result.document.fileRef || null,
+        title: doc.title, folder_code: doc.folder,
+        stage_number: stageNum, file_ref: doc.fileRef || null,
         status: 'submitted',
       });
     }
@@ -771,15 +771,22 @@ async function handleEvidenceEdit(btn) {
 // step, instead of the separate "Add Document to Stage" box that used to
 // sit at the bottom of the checklist page.
 // ===========================================================================
+// Documents attached to an evidence note: any number, each rendered as its
+// own row (Title / File Reference / VDR Folder / remove). Starts empty —
+// attaching a document is still optional, it's just no longer capped at one.
+let evDocRowSeq = 0; // unique id per row, so rows can be removed individually
+
 function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) {
   return new Promise((resolve) => {
     document.getElementById('evidence-modal')?.remove();
+    evDocRowSeq = 0;
+    let folderOptions = '<option value="">Loading…</option>';
 
     const modal = document.createElement('div');
     modal.id = 'evidence-modal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;';
     modal.innerHTML = `
-      <div class="card" style="width:100%;max-width:520px;max-height:90vh;overflow-y:auto;">
+      <div class="card" style="width:100%;max-width:560px;max-height:90vh;overflow-y:auto;">
         <div class="card-header">
           <h3>Evidence Note</h3>
           <button class="btn btn-ghost btn-sm" id="ev-close">✕</button>
@@ -794,23 +801,11 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
 
           <hr class="divider">
 
-          <div class="form-group" style="gap:2px;">
-            <label>Reference a document <span class="form-hint">(optional)</span></label>
+          <div class="flex items-center justify-between">
+            <label style="margin:0;">Reference documents <span class="form-hint">(optional, any number)</span></label>
+            <button type="button" class="btn btn-ghost btn-sm" id="ev-doc-add">+ Add Document</button>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Document Title</label>
-              <input type="text" id="ev-doc-title" placeholder="Document title…">
-            </div>
-            <div class="form-group">
-              <label>File Reference</label>
-              <input type="text" id="ev-doc-fileref" placeholder="filename.pdf or URL…">
-            </div>
-          </div>
-          <div class="form-group">
-            <label>VDR Folder</label>
-            <select id="ev-doc-folder"><option value="">Loading…</option></select>
-          </div>
+          <div id="ev-doc-rows" style="display:flex;flex-direction:column;gap:12px;"></div>
 
           <div id="ev-error" class="error-msg hidden"></div>
           <div class="flex gap-8" style="justify-content:flex-end;">
@@ -821,17 +816,53 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
       </div>`;
     document.body.appendChild(modal);
 
-    // Populate VDR folder dropdown from the project's active template
+    const rowsEl = modal.querySelector('#ev-doc-rows');
+
+    function addDocRow() {
+      const rowId = ++evDocRowSeq;
+      const row = document.createElement('div');
+      row.className = 'ev-doc-row';
+      row.dataset.rowId = rowId;
+      row.style.cssText = 'border:1px solid var(--border);border-radius:var(--radius);padding:10px;display:flex;flex-direction:column;gap:8px;';
+      row.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-muted" style="font-weight:600;">Document</span>
+          <button type="button" class="btn btn-ghost btn-sm ev-doc-remove" style="color:var(--red-700);padding:2px 6px;">Remove</button>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Document Title</label>
+            <input type="text" class="ev-doc-title" placeholder="Document title…">
+          </div>
+          <div class="form-group">
+            <label>File Reference</label>
+            <input type="text" class="ev-doc-fileref" placeholder="filename.pdf or URL…">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>VDR Folder</label>
+          <select class="ev-doc-folder">${folderOptions}</select>
+        </div>`;
+      rowsEl.appendChild(row);
+      row.querySelector('.ev-doc-remove').addEventListener('click', () => row.remove());
+    }
+
+    modal.querySelector('#ev-doc-add').addEventListener('click', addDocRow);
+
+    // Populate VDR folder options from the project's active template, then
+    // fill in any rows already rendered (there shouldn't be any yet, but
+    // this keeps the fetch and the first row independent of load order).
     api.get(`/api/templates/active${techParam(project.technology)}`)
       .then(tpl => {
-        const sel = modal.querySelector('#ev-doc-folder');
-        sel.innerHTML = '<option value="">Select folder…</option>' +
+        folderOptions = '<option value="">Select folder…</option>' +
           (tpl?.vdr_folders ?? [])
             .map(f => `<option value="${f.folder_code}">${f.folder_code}: ${api.fmt.escape(f.name)}</option>`)
             .join('');
+        modal.querySelectorAll('.ev-doc-folder').forEach(sel => { sel.innerHTML = folderOptions; });
       })
       .catch(() => {
-        modal.querySelector('#ev-doc-folder').innerHTML = '<option value="">Could not load folders</option>';
+        folderOptions = '<option value="">Could not load folders</option>';
+        modal.querySelectorAll('.ev-doc-folder').forEach(sel => { sel.innerHTML = folderOptions; });
       });
 
     const close = (result) => { modal.remove(); resolve(result); };
@@ -845,22 +876,23 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
       const errEl = modal.querySelector('#ev-error');
       errEl.classList.add('hidden');
 
-      const note       = modal.querySelector('#ev-note').value.trim();
-      const docTitle   = modal.querySelector('#ev-doc-title').value.trim();
-      const docFileRef = modal.querySelector('#ev-doc-fileref').value.trim();
-      const docFolder  = modal.querySelector('#ev-doc-folder').value;
+      const note = modal.querySelector('#ev-note').value.trim();
 
-      if (docTitle && !docFolder) {
-        errEl.textContent = 'Select a VDR folder for the document.';
-        errEl.classList.remove('hidden');
-        return;
+      const documents = [];
+      for (const row of rowsEl.querySelectorAll('.ev-doc-row')) {
+        const title  = row.querySelector('.ev-doc-title').value.trim();
+        const fileRef = row.querySelector('.ev-doc-fileref').value.trim();
+        const folder  = row.querySelector('.ev-doc-folder').value;
+        if (!title && !fileRef && !folder) continue; // fully empty row — skip silently
+        if (!title || !folder) {
+          errEl.textContent = 'Each document needs at least a title and a VDR folder.';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        documents.push({ title, fileRef, folder });
       }
 
-      close({
-        cancelled: false,
-        evidenceNote: note,
-        document: docTitle ? { title: docTitle, fileRef: docFileRef, folder: docFolder } : null,
-      });
+      close({ cancelled: false, evidenceNote: note, documents });
     });
   });
 }

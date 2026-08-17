@@ -122,11 +122,25 @@ function renderTemplate(el, techVersions = []) {
   const d = templateData;
   const hasProjects = d.project_count > 0;
 
-  const bannerClass = hasProjects ? 'warn' : 'safe';
-  const bannerMsg   = hasProjects
+  const bannerClass = d.is_draft ? 'draft' : (hasProjects ? 'warn' : 'safe');
+  const bannerMsg   = d.is_draft
+    ? `<strong>Draft</strong> — not visible in the "+ New Project" template picker yet. Make all the changes you
+       need, then publish when it's ready.`
+    : hasProjects
     ? `<strong>${d.project_count} active project${d.project_count > 1 ? 's' : ''}</strong> using <strong>${api.fmt.escape(d.name || d.version)}</strong>.
        Saving any change will create a new version. Existing projects are unaffected.`
     : `<strong>${api.fmt.escape(d.name || d.version)}</strong> · No active projects yet. Changes apply directly to this version.`;
+
+  // Global Publish button, top right of the whole page — only while a draft
+  // is open. Publishing only makes it selectable (see DRAFT/PUBLISH note in
+  // server/routes/templates.js) — it does not also set it active.
+  const headerActionsEl = document.getElementById('editor-header-actions');
+  if (headerActionsEl) {
+    headerActionsEl.innerHTML = d.is_draft
+      ? `<button class="btn btn-primary" id="publish-draft-btn">Publish</button>`
+      : '';
+    headerActionsEl.querySelector('#publish-draft-btn')?.addEventListener('click', handlePublishDraft);
+  }
 
   // Version history panel
   const versionHistory = techVersions.map(v => {
@@ -155,6 +169,7 @@ function renderTemplate(el, techVersions = []) {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;min-width:0;">
           <span style="font-weight:700;font-size:13px;">${api.fmt.escape(v.name || v.version)}</span>
+          ${v.is_draft ? '<span class="badge badge-amber" style="font-size:10px;">Draft</span>' : ''}
           ${isActive ? '<span class="badge badge-green" style="font-size:10px;">Active</span>' : ''}
           ${isOpen   ? '<span class="badge badge-blue" style="font-size:10px;">Editing</span>' : ''}
         </div>
@@ -166,8 +181,9 @@ function renderTemplate(el, techVersions = []) {
         v${api.fmt.escape(v.version)} · Created by ${api.fmt.escape(v.created_by_name || '?')} · ${api.fmt.date(v.created_at)}
         · ${v.project_count} project${v.project_count !== 1 ? 's' : ''}
       </div>
-      ${!isActive ? `<button class="btn btn-ghost btn-sm set-active-btn" data-vid="${v.id}"
+      ${!isActive && !v.is_draft ? `<button class="btn btn-ghost btn-sm set-active-btn" data-vid="${v.id}"
          style="margin-top:6px;font-size:11px;color:var(--green-700);">Set as Active</button>` : ''}
+      ${v.is_draft ? `<span class="text-muted text-sm" style="display:block;margin-top:6px;font-size:11px;">Publish to make selectable</span>` : ''}
     </div>`;
   }).join('');
 
@@ -704,6 +720,24 @@ async function handleStageStatus(btn) {
   } catch (err) {
     alert('Error: ' + err.message);
     btn.disabled = false;
+  }
+}
+
+async function handlePublishDraft() {
+  if (!confirm(
+    'Publish this draft?\n\nIt will become selectable in the "+ New Project" template picker. ' +
+    'It will NOT automatically become the active/default template for this vertical — use ' +
+    '"Set as Active" separately if you want that.'
+  )) return;
+
+  const btn = document.getElementById('publish-draft-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await api.patch(`/api/templates/${templateData.version_id}/publish`, {});
+    await loadTemplate();
+  } catch (err) {
+    alert('Could not publish: ' + err.message);
+    if (btn) btn.disabled = false;
   }
 }
 
