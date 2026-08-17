@@ -13,6 +13,7 @@
 const pool = require('../db');
 const { requireLogin } = require('../middleware/auth');
 const { canViewProject, getRequiredAuthority, hasProjectRole } = require('../middleware/permissions');
+const { getStageNameMapForVersionString } = require('../services/stageNames');
 
 // PM can manage members on a project if they created it or are its project lead
 async function pmCanManageProject(userId, projectId) {
@@ -124,17 +125,31 @@ async function create(req, res) {
     );
     const projectId = result.insertId;
 
-    // Insert 6 project_stage rows. Stage 0 opens immediately (in_progress).
-    for (let stage = 0; stage <= 5; stage++) {
+    // Insert one project_stage row per stage actually defined on this
+    // template version (not a hardcoded 0-5 — admins can add stages via the
+    // template editor, see template_stages / DOA_SPEC.md). The first stage in
+    // order opens immediately (in_progress); the rest start not_started.
+    const [templateStages] = await conn.execute(
+      'SELECT stage_number FROM template_stages WHERE template_version_id = ? ORDER BY stage_number',
+      [tv.id]
+    );
+    // Defensive fallback: a template version with no template_stages rows
+    // (shouldn't happen post-migration-024, but don't silently create zero
+    // stages if it somehow does) still gets the original fixed 6.
+    const stageNumbers = templateStages.length > 0
+      ? templateStages.map(s => s.stage_number)
+      : [0, 1, 2, 3, 4, 5];
+
+    for (const stage of stageNumbers) {
       await conn.execute(
         `INSERT INTO project_stages (project_id, stage_number, status)
          VALUES (?, ?, ?)`,
-        [projectId, stage, stage === 0 ? 'in_progress' : 'not_started']
+        [projectId, stage, stage === stageNumbers[0] ? 'in_progress' : 'not_started']
       );
     }
 
-    // Eagerly initialise Stage 0 checklist rows from the template
-    await stageService.initializeStageChecklist(conn, projectId, 0, tv.id);
+    // Eagerly initialise the first stage's checklist rows from the template
+    await stageService.initializeStageChecklist(conn, projectId, stageNumbers[0], tv.id);
 
     await auditLog.log(conn, {
       userId: user.id,
@@ -313,9 +328,15 @@ async function getOne(req, res, params) {
     activeItemCounts.map(r => [r.stage_number, Number(r.active_count)])
   );
 
-  // Attach gate routing info and deactivation flag to each stage
+  // Stage titles come from template_stages (editable per template version in
+  // the template editor) rather than a hardcoded array — see DOA_SPEC.md /
+  // stageNames.js.
+  const stageNameMap = await getStageNameMapForVersionString(project.template_version);
+
+  // Attach gate routing info, deactivation flag, and stage name to each stage
   const stagesWithRouting = await Promise.all(stages.map(async s => ({
     ...s,
+    stage_name: stageNameMap[s.stage_number] ?? `Stage ${s.stage_number}`,
     required_approvers: await getRequiredAuthority(s.stage_number, s.capex_at_submission ?? project.capex_usd, projectId),
     is_deactivated: (activeCountByStage[s.stage_number] ?? 0) === 0,
   })));

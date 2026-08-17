@@ -1,10 +1,11 @@
 /* project.js — single project view */
 'use strict';
 
-const STAGE_NAMES = [
-  'Opportunity Screening', 'Preliminary Assessment', 'Full Feasibility',
-  'Financial Close / FID', 'First Disbursement', 'COD / Commissioning',
-];
+// Populated from project.stages once the project loads (loadProject()) —
+// stage titles are editable per template version in the template editor now
+// (template_stages), not a fixed array. Indexed by stage_number, same as
+// before, so every STAGE_NAMES[n] call site below is unchanged.
+let STAGE_NAMES = [];
 const PILLAR_LABELS = {
   technical: 'Technical', commercial: 'Commercial', finance: 'Finance',
   legal: 'Legal', environmental: 'Environmental & Social', risk: 'Risk & Governance',
@@ -68,6 +69,9 @@ async function loadProject() {
       `<div class="error-msg mt-24">Could not load project: ${api.fmt.escape(err.message)}</div>`;
     return;
   }
+
+  STAGE_NAMES = [];
+  project.stages.forEach(s => { STAGE_NAMES[s.stage_number] = s.stage_name; });
 
   // Observers get the data room view, not the full project view
   const myMember = project.members.find(m => m.user_id === currentUser.id);

@@ -26,11 +26,7 @@ const pool = require('../db');
 const { requireLogin } = require('../middleware/auth');
 const { canViewProject } = require('../middleware/permissions');
 const { sendJSON, sendError } = require('../utils/response');
-
-const STAGE_NAMES = [
-  'Opportunity Screening', 'Preliminary Assessment', 'Full Feasibility',
-  'Financial Close / FID', 'First Disbursement', 'COD / Commissioning',
-];
+const { getStageNameMapForVersionString } = require('../services/stageNames');
 
 async function getDataroom(req, res, params) {
   const user = await requireLogin(req, res);
@@ -47,11 +43,13 @@ async function getDataroom(req, res, params) {
 
   // Fetch basic project metadata shown at the top of the data room
   const [[project]] = await pool.execute(
-    `SELECT id, name, capex_usd, current_stage, status, technology
+    `SELECT id, name, capex_usd, current_stage, status, technology, template_version
      FROM projects WHERE id = ?`,
     [projectId]
   );
   if (!project) return sendError(res, 404, 'Project not found');
+
+  const stageNameMap = await getStageNameMapForVersionString(project.template_version);
 
   // Get the observer row specifically so we can return the expiry date
   const [[member]] = await pool.execute(
@@ -109,7 +107,7 @@ async function getDataroom(req, res, params) {
       capex_usd:     project.capex_usd,
       technology:    project.technology,
       current_stage: project.current_stage,
-      stage_name:    STAGE_NAMES[project.current_stage] ?? `Stage ${project.current_stage}`,
+      stage_name:    stageNameMap[project.current_stage] ?? `Stage ${project.current_stage}`,
       stage_status:  stageRow?.status ?? null,
       status:        project.status,
     },

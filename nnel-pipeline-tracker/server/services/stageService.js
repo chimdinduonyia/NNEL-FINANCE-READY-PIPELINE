@@ -50,16 +50,39 @@ async function getTemplateVersionId(conn, projectId) {
 }
 
 /**
+ * Returns the highest stage_number defined for a template version — the
+ * "last stage" boundary advanceProject() needs to know when to stop.
+ * Falls back to 5 (the original fixed 6-stage pipeline) if template_stages
+ * has no rows for this version, so nothing breaks for a version that
+ * predates the table for some reason.
+ * @param {object} conn
+ * @param {number} templateVersionId
+ */
+async function getMaxStageNumber(conn, templateVersionId) {
+  if (!templateVersionId) return 5;
+  const [[row]] = await conn.execute(
+    'SELECT MAX(stage_number) AS maxStage FROM template_stages WHERE template_version_id = ?',
+    [templateVersionId]
+  );
+  return row?.maxStage ?? 5;
+}
+
+/**
  * Advances the project after a gate has been fully approved.
  *
  * Steps:
  *   1. Mark the approved stage as 'approved'.
- *   2. If there is a next stage (stageNumber < 5):
+ *   2. If there is a next stage (stageNumber < the template's last stage):
  *        a. Open the next stage (set status to 'in_progress').
  *        b. Advance projects.current_stage.
  *        c. Initialise the checklist for the new stage.
- *   3. If stageNumber === 5 (COD approved):
+ *   3. If this was the last stage (e.g. COD approved):
  *        Mark the project as 'completed'.
+ *
+ * The "last stage" is read from the project's own template_stages, not
+ * hardcoded — admins can add stages via the template editor, so different
+ * projects (on different template versions) may have a different number of
+ * stages entirely.
  *
  * The caller is responsible for wrapping this in a transaction.
  *
@@ -75,11 +98,12 @@ async function advanceProject(conn, projectId, approvedStageNumber) {
   );
 
   const templateVersionId = await getTemplateVersionId(conn, projectId);
+  const maxStage = await getMaxStageNumber(conn, templateVersionId);
 
   // Find the next stage that has at least one active checklist item.
   // Stages with no active items are deactivated and should be skipped automatically.
   let nextStage = approvedStageNumber + 1;
-  while (nextStage <= 5) {
+  while (nextStage <= maxStage) {
     const [[{ active_count }]] = await conn.execute(
       `SELECT COUNT(*) AS active_count
        FROM template_checklist_items tci
@@ -96,7 +120,7 @@ async function advanceProject(conn, projectId, approvedStageNumber) {
     nextStage++;
   }
 
-  if (nextStage <= 5) {
+  if (nextStage <= maxStage) {
     // Open the next non-deactivated stage
     await conn.execute(
       "UPDATE project_stages SET status = 'in_progress' WHERE project_id = ? AND stage_number = ?",
@@ -118,4 +142,4 @@ async function advanceProject(conn, projectId, approvedStageNumber) {
   }
 }
 
-module.exports = { initializeStageChecklist, getTemplateVersionId, advanceProject };
+module.exports = { initializeStageChecklist, getTemplateVersionId, advanceProject, getMaxStageNumber };

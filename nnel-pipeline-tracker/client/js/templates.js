@@ -12,18 +12,19 @@ const PILLAR_OPTIONS = [
 ];
 const PILLAR_LABEL = Object.fromEntries(PILLAR_OPTIONS.map(p => [p.value, p.label]));
 
-const STAGE_NAMES = [
-  'Opportunity Screening','Preliminary Assessment','Full Feasibility',
-  'Financial Close / FID','First Disbursement','COD / Commissioning',
-];
-
 let activeTech      = 'solar_pv';
 let activeVersionId = null; // which version is open in the editor
 let templateData    = null; // current GET /api/templates/:id/items response
 let gateConfig      = {};   // { stageNumber: [{chain_position, authority}, …] }
 let editingItemId   = null;
+let editingStageNum = null; // stage_number currently being renamed inline, or null
 let currentUser     = null;
 let allVersions     = [];   // all template versions (refreshed on loadTemplate)
+
+// Looks up a stage's current name from the loaded template data.
+function stageNameOf(stageNumber) {
+  return templateData?.stages?.find(s => s.stage_number === stageNumber)?.stage_name ?? `Stage ${stageNumber}`;
+}
 
 const GATE_AUTH_OPTIONS = [
   { value: 'm1_nnpc',    label: 'M1: NNPC Group' },
@@ -93,6 +94,7 @@ async function loadVersion(versionId, el, techVersions) {
   }
   activeVersionId = versionId;
   editingItemId = null;
+  editingStageNum = null;
 
   try { templateData = await api.get(`/api/templates/${versionId}/items`); }
   catch (err) { el.innerHTML = `<div class="error-msg">${api.fmt.escape(err.message)}</div>`; return; }
@@ -169,7 +171,10 @@ function renderTemplate(el, techVersions = []) {
     </div>`;
   }).join('');
 
-  const stagesHtml = d.stages.map(s => renderStage(s, gateConfig[s.stage_number] ?? [])).join('');
+  const stageNumbers = d.stages.map(s => s.stage_number);
+  const stagesHtml = d.stages.map((s, i) =>
+    renderStage(s, gateConfig[s.stage_number] ?? [], i === 0, i === d.stages.length - 1)
+  ).join('');
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:260px 1fr;gap:0;align-items:start;">
@@ -183,6 +188,13 @@ function renderTemplate(el, techVersions = []) {
       <div style="padding:0 0 0 20px;">
         <div class="version-banner ${bannerClass}" style="margin-bottom:16px;">ℹ️ ${bannerMsg}</div>
     ${stagesHtml}
+        <div style="margin:16px 0 24px;">
+          <button class="btn btn-ghost btn-sm" id="add-stage-btn">+ Add Stage</button>
+          <span class="text-muted text-sm" style="margin-left:8px;">
+            Appended after Stage ${stageNumbers[stageNumbers.length - 1] ?? 0} — stage numbers stay a stable
+            anchor, so a new stage always goes at the end (reorder it afterwards if needed).
+          </span>
+        </div>
       </div>
     </div>`;
 
@@ -220,10 +232,12 @@ function renderTemplate(el, techVersions = []) {
   // Wire up + New version button
   el.querySelector('#create-version-btn')?.addEventListener('click', openCreateVersionModal);
 
-  // Wire up accordions (click anywhere on header except buttons)
+  // Wire up accordions (click anywhere on header except buttons/inputs —
+  // the rename control lives inside the header, so a click to edit the
+  // title must not also toggle the section open/closed)
   el.querySelectorAll('.stage-header').forEach(h => {
     h.addEventListener('click', e => {
-      if (e.target.closest('button')) return;
+      if (e.target.closest('button') || e.target.closest('input')) return;
       const body = h.nextElementSibling;
       body.classList.toggle('hidden');
     });
@@ -233,6 +247,39 @@ function renderTemplate(el, techVersions = []) {
   el.querySelectorAll('.stage-status-btn').forEach(btn => {
     btn.addEventListener('click', () => handleStageStatus(btn));
   });
+
+  // Wire up stage rename controls
+  el.querySelectorAll('.stage-name-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      editingStageNum = parseInt(btn.dataset.stage, 10);
+      renderTemplate(el);
+      // innerHTML-injected `autofocus` is unreliable across browsers — focus explicitly
+      el.querySelector(`.stage-name-input[data-stage="${editingStageNum}"]`)?.focus();
+    });
+  });
+  el.querySelectorAll('.stage-name-cancel').forEach(btn => {
+    btn.addEventListener('click', () => {
+      editingStageNum = null;
+      renderTemplate(el);
+    });
+  });
+  el.querySelectorAll('.stage-name-save').forEach(btn => {
+    btn.addEventListener('click', () => handleRenameStage(parseInt(btn.dataset.stage, 10)));
+  });
+  el.querySelectorAll('.stage-name-input').forEach(input => {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); handleRenameStage(parseInt(input.dataset.stage, 10)); }
+      if (e.key === 'Escape') { editingStageNum = null; renderTemplate(el); }
+    });
+  });
+
+  // Wire up stage reorder (^v) buttons
+  el.querySelectorAll('.stage-reorder-btn').forEach(btn => {
+    btn.addEventListener('click', () => handleReorderStage(btn));
+  });
+
+  // Wire up + Add Stage button
+  el.querySelector('#add-stage-btn')?.addEventListener('click', openAddStageModal);
 
   // Wire up all item-level buttons
   el.querySelectorAll('[data-action]').forEach(btn => {
@@ -257,7 +304,7 @@ function renderTemplate(el, techVersions = []) {
 }
 
 // ---------------------------------------------------------------------------
-function renderStage(stage, chain = []) {
+function renderStage(stage, chain = [], isFirst = false, isLast = false) {
   const activeItems   = stage.items.filter(i => i.is_active);
   const inactiveItems = stage.items.filter(i => !i.is_active);
   const allItems      = [...activeItems, ...inactiveItems];
@@ -298,10 +345,38 @@ function renderStage(stage, chain = []) {
       </div>`
     : '';
 
+  const isEditingName = editingStageNum === stage.stage_number;
+  const reorderBtns = `<span class="stage-reorder-btns" style="display:inline-flex;flex-direction:column;gap:1px;margin-right:8px;vertical-align:middle;">
+    <button class="btn btn-ghost btn-sm stage-reorder-btn" data-stage="${stage.stage_number}" data-dir="up"
+      ${isFirst ? 'disabled' : ''} title="Move Stage ${stage.stage_number} up"
+      style="padding:0 4px;line-height:1;font-size:9px;${isFirst ? 'opacity:.3;' : ''}">▲</button>
+    <button class="btn btn-ghost btn-sm stage-reorder-btn" data-stage="${stage.stage_number}" data-dir="down"
+      ${isLast ? 'disabled' : ''} title="Move Stage ${stage.stage_number} down"
+      style="padding:0 4px;line-height:1;font-size:9px;${isLast ? 'opacity:.3;' : ''}">▼</button>
+  </span>`;
+
+  const titleBlock = isEditingName
+    ? `<span style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;">
+        <span style="font-size:13px;font-weight:700;white-space:nowrap;">Stage ${stage.stage_number}:</span>
+        <input type="text" class="stage-name-input" data-stage="${stage.stage_number}"
+          value="${api.fmt.escape(stage.stage_name)}" maxlength="100" autofocus
+          style="font-size:14px;font-weight:700;padding:4px 8px;flex:1;min-width:0;max-width:340px;">
+        <button class="btn btn-primary btn-sm stage-name-save" data-stage="${stage.stage_number}">Save</button>
+        <button class="btn btn-ghost btn-sm stage-name-cancel">Cancel</button>
+      </span>`
+    : `<span style="display:flex;align-items:center;gap:6px;min-width:0;">
+        <h3 style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Stage ${stage.stage_number}: ${api.fmt.escape(stage.stage_name)}</h3>
+        <button class="btn btn-ghost btn-sm stage-name-edit-btn" data-stage="${stage.stage_number}"
+          title="Rename this stage" style="padding:2px 6px;color:var(--text-muted);flex-shrink:0;">✎</button>
+      </span>`;
+
   return `<div class="stage-section">
     <div class="stage-header">
-      <h3>Stage ${stage.stage_number}: ${STAGE_NAMES[stage.stage_number] ?? ''}</h3>
-      <div style="display:flex;align-items:center;gap:12px;">
+      <div style="display:flex;align-items:center;min-width:0;flex:1;">
+        ${reorderBtns}
+        ${titleBlock}
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
         <span class="stage-count">${activeItems.length} active · ${inactiveItems.length} inactive</span>
         ${stageBtn}
       </div>
@@ -611,7 +686,7 @@ async function handleStageStatus(btn) {
   const stageNum   = parseInt(btn.dataset.stage, 10);
   const currentlyActive = btn.dataset.active === 'true';
   const verb = currentlyActive ? 'Deactivate' : 'Restore';
-  const stageName = STAGE_NAMES[stageNum] ?? `Stage ${stageNum}`;
+  const stageName = stageNameOf(stageNum);
 
   if (!confirm(`${verb} all checklist items in Stage ${stageNum}: ${stageName}?\n\nThis affects all items in this stage.`)) return;
 
@@ -624,6 +699,111 @@ async function handleStageStatus(btn) {
     );
     if (result.forked) {
       alert(`Done. A new version (${result.new_version}) has been created to preserve existing projects.`);
+    }
+    await loadTemplate();
+  } catch (err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stage rename / add / reorder
+// ---------------------------------------------------------------------------
+
+async function handleRenameStage(stageNum) {
+  const input = document.querySelector(`.stage-name-input[data-stage="${stageNum}"]`);
+  const name = input?.value?.trim();
+  if (!name) { alert('Stage name cannot be empty.'); return; }
+
+  const saveBtn = document.querySelector(`.stage-name-save[data-stage="${stageNum}"]`);
+  if (saveBtn) saveBtn.disabled = true;
+
+  const versionId = templateData.version_id;
+  try {
+    const result = await api.patch(`/api/templates/${versionId}/stages/${stageNum}/name`, { name });
+    editingStageNum = null;
+    if (result.forked) {
+      alert(`Saved. A new version (${result.new_version}) has been created to protect existing projects.`);
+    }
+    await loadTemplate();
+  } catch (err) {
+    alert('Error: ' + err.message);
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+function openAddStageModal() {
+  document.getElementById('as-modal')?.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'as-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:24px;';
+  const nextStageNum = (templateData.stages[templateData.stages.length - 1]?.stage_number ?? -1) + 1;
+  modal.innerHTML = `
+    <div class="card" style="width:100%;max-width:420px;">
+      <div class="card-header">
+        <h3>Add Stage ${nextStageNum}</h3>
+        <button class="btn btn-ghost btn-sm" id="as-close">✕</button>
+      </div>
+      <div class="card-body">
+        <p class="text-sm text-muted" style="margin-bottom:12px;">
+          Appended after the last stage. Reorder it afterwards with the ▲▼ buttons if it belongs earlier.
+        </p>
+        <div class="form-group">
+          <label>Stage Name *</label>
+          <input type="text" id="as-name" maxlength="100" placeholder="e.g. Community Engagement" style="width:100%;" autofocus>
+        </div>
+        <div id="as-error" class="error-msg hidden"></div>
+        <div class="flex gap-8" style="margin-top:16px;">
+          <button class="btn btn-primary" id="as-submit">Add Stage</button>
+          <button class="btn btn-ghost" id="as-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#as-name').focus();
+
+  const close = () => modal.remove();
+  modal.querySelector('#as-close').addEventListener('click', close);
+  modal.querySelector('#as-cancel').addEventListener('click', close);
+
+  const submit = async () => {
+    const name = document.getElementById('as-name').value.trim();
+    const errEl = document.getElementById('as-error');
+    errEl.classList.add('hidden');
+    if (!name) { errEl.textContent = 'Stage name is required.'; errEl.classList.remove('hidden'); return; }
+
+    const submitBtn = modal.querySelector('#as-submit');
+    submitBtn.disabled = true;
+    try {
+      const result = await api.post(`/api/templates/${templateData.version_id}/stages`, { name });
+      close();
+      if (result.forked) {
+        alert(`Added. A new version (${result.new_version}) has been created to protect existing projects.`);
+        activeVersionId = result.new_version_id;
+      }
+      await loadTemplate();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+      submitBtn.disabled = false;
+    }
+  };
+  modal.querySelector('#as-submit').addEventListener('click', submit);
+  modal.querySelector('#as-name').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+}
+
+async function handleReorderStage(btn) {
+  const stageNum = parseInt(btn.dataset.stage, 10);
+  const direction = btn.dataset.dir;
+  btn.disabled = true;
+  const versionId = templateData.version_id;
+  try {
+    const result = await api.post(`/api/templates/${versionId}/stages/${stageNum}/reorder`, { direction });
+    if (result.forked) {
+      alert(`Reordered. A new version (${result.new_version}) has been created to protect existing projects.`);
+      activeVersionId = result.new_version_id;
     }
     await loadTemplate();
   } catch (err) {

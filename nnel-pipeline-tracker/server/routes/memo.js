@@ -11,11 +11,7 @@ const pool = require('../db');
 const { requireLogin }  = require('../middleware/auth');
 const { getProjectMember } = require('../middleware/permissions');
 const { sendJSON, sendError } = require('../utils/response');
-
-const STAGE_NAMES = [
-  'Opportunity Screening', 'Preliminary Assessment', 'Full Feasibility',
-  'Financial Close / FID', 'First Disbursement', 'COD / Commissioning',
-];
+const { getStageNameMapForVersionString } = require('../services/stageNames');
 
 async function getMemo(req, res, params) {
   const user = await requireLogin(req, res);
@@ -35,12 +31,14 @@ async function getMemo(req, res, params) {
   // 1. Project info
   const [[project]] = await pool.execute(
     `SELECT id, name, description, capex_usd, current_stage, status,
-            technology, is_at_risk, created_at,
+            technology, is_at_risk, created_at, template_version,
             objectives, justification, benefits
      FROM projects WHERE id = ?`,
     [projectId]
   );
   if (!project) return sendError(res, 404, 'Project not found');
+
+  const stageNameMap = await getStageNameMapForVersionString(project.template_version);
 
   // 2. Team members
   const [members] = await pool.execute(
@@ -104,7 +102,7 @@ async function getMemo(req, res, params) {
   // Enrich stages with names
   const stagesEnriched = stages.map(s => ({
     ...s,
-    stage_name: STAGE_NAMES[s.stage_number] ?? `Stage ${s.stage_number}`,
+    stage_name: stageNameMap[s.stage_number] ?? `Stage ${s.stage_number}`,
     checklist_pct: s.checklist_total > 0
       ? Math.round((Number(s.checklist_done) / Number(s.checklist_total)) * 100)
       : 0,

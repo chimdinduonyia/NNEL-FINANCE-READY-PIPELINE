@@ -1,10 +1,6 @@
 /* memo.js — Internal Memo Export page */
 'use strict';
 
-const STAGE_NAMES = [
-  'Opportunity Screening', 'Preliminary Assessment', 'Full Feasibility',
-  'Financial Close / FID', 'First Disbursement', 'COD / Commissioning',
-];
 const ROLE_LABELS = {
   project_lead:  'Project Lead',
   contributor:   'Contributor',
@@ -67,7 +63,7 @@ function buildMemo(d) {
         <tr><td><strong>Technology Vertical</strong></td><td>${esc(p.technology ?? '-')}</td></tr>
         <tr><td><strong>CAPEX (USD)</strong></td><td>${api.fmt.currency(p.capex_usd)}</td></tr>
         <tr><td><strong>Current Stage</strong></td>
-            <td>Stage ${p.current_stage}: ${STAGE_NAMES[p.current_stage] ?? '-'}</td></tr>
+            <td>Stage ${p.current_stage}: ${d.stages.find(s => s.stage_number === p.current_stage)?.stage_name ?? '-'}</td></tr>
         <tr><td><strong>Project Status</strong></td><td>${statusBadge(p.status)}</td></tr>
         <tr><td><strong>Overall Checklist</strong></td><td>
           <span class="pct-bar"><span class="pct-fill" style="width:${overallPct}%;"></span></span>

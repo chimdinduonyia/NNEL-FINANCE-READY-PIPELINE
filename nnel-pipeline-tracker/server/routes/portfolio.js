@@ -13,15 +13,7 @@ const pool = require('../db');
 const { requireLogin } = require('../middleware/auth');
 const { getProjectMember, getRequiredAuthority } = require('../middleware/permissions');
 const { sendJSON, sendError } = require('../utils/response');
-
-const STAGE_NAMES = [
-  'Opportunity Screening',    // 0
-  'Preliminary Assessment',   // 1
-  'Full Feasibility',         // 2
-  'Financial Close / FID',    // 3
-  'First Disbursement',       // 4
-  'COD / Commissioning',      // 5
-];
+const { getStageNameMapForVersionString } = require('../services/stageNames');
 
 // Map project current_stage to the portfolio funnel tier (§4)
 function getFunnelStage(stageNumber) {
@@ -66,6 +58,7 @@ async function getPortfolio(req, res) {
       ps.submitted_at,
       ps.review_round,
       DATEDIFF(NOW(), ps.submitted_at) AS days_since_submitted,
+      ts_cur.name AS stage_name_db,
       (SELECT COUNT(*) FROM gate_conditions gc
        JOIN gate_decisions gd ON gd.id = gc.gate_decision_id
        WHERE gc.project_id = p.id
@@ -82,6 +75,9 @@ async function getPortfolio(req, res) {
     FROM projects p
     LEFT JOIN project_stages ps
       ON ps.project_id = p.id AND ps.stage_number = p.current_stage
+    LEFT JOIN template_versions tv_cur ON tv_cur.version = p.template_version
+    LEFT JOIN template_stages ts_cur
+      ON ts_cur.template_version_id = tv_cur.id AND ts_cur.stage_number = p.current_stage
   `;
 
   // Admins and project managers see all projects.
@@ -107,7 +103,7 @@ async function getPortfolio(req, res) {
   sendJSON(res, 200, projects.map(p => ({
     ...p,
     funnel_stage: getFunnelStage(p.current_stage),
-    stage_name:   STAGE_NAMES[p.current_stage] ?? `Stage ${p.current_stage}`,
+    stage_name:   p.stage_name_db ?? `Stage ${p.current_stage}`,
     has_open_conditions: Number(p.open_conditions) > 0,
     open_conditions: Number(p.open_conditions),
     days_since_submitted: p.submitted_at ? Number(p.days_since_submitted) : null,
@@ -205,7 +201,7 @@ async function getPendingDecisions(req, res) {
   // Find submitted stages where this user is assigned as gate_approver
   const [candidates] = await pool.execute(`
     SELECT
-      p.id AS project_id, p.name AS project_name, p.capex_usd,
+      p.id AS project_id, p.name AS project_name, p.capex_usd, p.template_version,
       ps.stage_number, ps.submitted_at, ps.submitted_by,
       ps.capex_at_submission, ps.review_round,
       pm.approver_authority
@@ -218,6 +214,7 @@ async function getPendingDecisions(req, res) {
   `, [user.id]);
 
   const pending = [];
+  const stageNameCache = {}; // template_version string -> { stage_number: name }, avoids re-querying per row
 
   for (const row of candidates) {
     // Segregation of duties
@@ -236,12 +233,16 @@ async function getPendingDecisions(req, res) {
     if (nextIndex >= required.length) continue;
     if (row.approver_authority !== required[nextIndex]) continue;
 
+    if (!stageNameCache[row.template_version]) {
+      stageNameCache[row.template_version] = await getStageNameMapForVersionString(row.template_version);
+    }
+
     pending.push({
       project_id:        row.project_id,
       project_name:      row.project_name,
       capex_usd:         row.capex_usd,
       stage_number:      row.stage_number,
-      stage_name:        STAGE_NAMES[row.stage_number] ?? `Stage ${row.stage_number}`,
+      stage_name:        stageNameCache[row.template_version][row.stage_number] ?? `Stage ${row.stage_number}`,
       submitted_at:      row.submitted_at,
       capex_at_submission: row.capex_at_submission,
       my_authority:      row.approver_authority,
@@ -276,6 +277,7 @@ async function getRejectedDecisions(req, res) {
     SELECT DISTINCT
       p.id          AS project_id,
       p.name        AS project_name,
+      p.template_version,
       ps.stage_number,
       ps.review_round,
       gd.rationale,
@@ -301,16 +303,25 @@ async function getRejectedDecisions(req, res) {
     ORDER BY gd.created_at DESC
   `, [user.id]);
 
-  sendJSON(res, 200, rows.map(r => ({
-    project_id:      r.project_id,
-    project_name:    r.project_name,
-    stage_number:    r.stage_number,
-    stage_name:      STAGE_NAMES[r.stage_number] ?? `Stage ${r.stage_number}`,
-    rationale:       r.rationale,
-    decided_at:      r.decided_at,
-    authority:       r.authority,
-    decided_by_name: r.decided_by_name,
-  })));
+  const stageNameCache = {};
+  const result = [];
+  for (const r of rows) {
+    if (!stageNameCache[r.template_version]) {
+      stageNameCache[r.template_version] = await getStageNameMapForVersionString(r.template_version);
+    }
+    result.push({
+      project_id:      r.project_id,
+      project_name:    r.project_name,
+      stage_number:    r.stage_number,
+      stage_name:      stageNameCache[r.template_version][r.stage_number] ?? `Stage ${r.stage_number}`,
+      rationale:       r.rationale,
+      decided_at:      r.decided_at,
+      authority:       r.authority,
+      decided_by_name: r.decided_by_name,
+    });
+  }
+
+  sendJSON(res, 200, result);
 }
 
-module.exports = { getPortfolio, getKPIs, getPendingDecisions, getRejectedDecisions, STAGE_NAMES, getFunnelStage };
+module.exports = { getPortfolio, getKPIs, getPendingDecisions, getRejectedDecisions, getFunnelStage };

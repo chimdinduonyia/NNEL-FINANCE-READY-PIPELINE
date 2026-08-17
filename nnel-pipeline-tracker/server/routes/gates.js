@@ -27,6 +27,7 @@ const { sendJSON, sendError } = require('../utils/response');
 const { readBody } = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
 const stageService = require('../services/stageService');
+const { MAX_STAGE_NUMBER } = require('../constants');
 
 // ---------------------------------------------------------------------------
 // POST /api/projects/:id/stages/:stage/submit
@@ -41,7 +42,7 @@ async function submit(req, res, params) {
 
   const projectId = parseInt(params.id, 10);
   const stageNumber = parseInt(params.stage, 10);
-  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > 5) {
+  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > MAX_STAGE_NUMBER) {
     return sendError(res, 400, 'Invalid project id or stage number');
   }
 
@@ -124,7 +125,7 @@ async function recall(req, res, params) {
 
   const projectId   = parseInt(params.id, 10);
   const stageNumber = parseInt(params.stage, 10);
-  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > 5) {
+  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > MAX_STAGE_NUMBER) {
     return sendError(res, 400, 'Invalid project id or stage number');
   }
 
@@ -206,7 +207,7 @@ async function recordDecision(req, res, params) {
 
   const projectId = parseInt(params.id, 10);
   const stageNumber = parseInt(params.stage, 10);
-  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > 5) {
+  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > MAX_STAGE_NUMBER) {
     return sendError(res, 400, 'Invalid project id or stage number');
   }
 

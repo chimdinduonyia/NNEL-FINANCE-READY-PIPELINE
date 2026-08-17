@@ -22,11 +22,8 @@ const { requireLogin } = require('../middleware/auth');
 const { sendJSON, sendError } = require('../utils/response');
 const { readBody }            = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
+const { MAX_STAGE_NUMBER } = require('../constants');
 
-const STAGE_NAMES = [
-  'Opportunity Screening', 'Preliminary Assessment', 'Full Feasibility',
-  'Financial Close / FID', 'First Disbursement', 'COD / Commissioning',
-];
 const VALID_PILLARS = ['technical','commercial','finance','legal','environmental','risk','esg'];
 
 // ---------------------------------------------------------------------------
@@ -84,6 +81,17 @@ async function forkVersion(conn, sourceVersionId, userId, nameOverride = null) {
      SELECT ?, stage_number, pillar, item_code, description,
             guidance, is_mandatory, sort_order, is_active
      FROM template_checklist_items
+     WHERE template_version_id = ?`,
+    [newVersionId, sourceVersionId]
+  );
+
+  // Clone stage definitions (names + numbers) — see template_stages /
+  // DOA_SPEC.md. Without this, a fork would silently lose any renamed or
+  // added stages and fall back to nothing at all for that version.
+  await conn.execute(
+    `INSERT INTO template_stages (template_version_id, stage_number, name)
+     SELECT ?, stage_number, name
+     FROM template_stages
      WHERE template_version_id = ?`,
     [newVersionId, sourceVersionId]
   );
@@ -191,11 +199,20 @@ async function getItems(req, res, params) {
     [versionId]
   );
 
-  // Group by stage
+  // Stages themselves are data now (template_stages), not a hardcoded 0-5 —
+  // admins can rename, add, and reorder them per version in this editor.
+  const [stageRows] = await pool.execute(
+    'SELECT id, stage_number, name FROM template_stages WHERE template_version_id = ? ORDER BY stage_number',
+    [versionId]
+  );
+
+  // Group items by stage
   const byStage = {};
-  for (let s = 0; s <= 5; s++) {
-    byStage[s] = { stage_number: s, stage_name: STAGE_NAMES[s], items: [] };
-  }
+  stageRows.forEach(s => {
+    byStage[s.stage_number] = {
+      id: s.id, stage_number: s.stage_number, stage_name: s.name, items: [],
+    };
+  });
   items.forEach(item => {
     if (byStage[item.stage_number]) byStage[item.stage_number].items.push(item);
   });
@@ -234,8 +251,8 @@ async function addItem(req, res, params) {
 
   const { stage_number, pillar, item_code, description, guidance, is_mandatory, sort_order } = body;
 
-  if (!Number.isInteger(Number(stage_number)) || stage_number < 0 || stage_number > 5) {
-    return sendError(res, 400, 'stage_number (0–5) is required');
+  if (!Number.isInteger(Number(stage_number)) || stage_number < 0 || stage_number > MAX_STAGE_NUMBER) {
+    return sendError(res, 400, `stage_number (0–${MAX_STAGE_NUMBER}) is required`);
   }
   if (!VALID_PILLARS.includes(pillar)) {
     return sendError(res, 400, `pillar must be one of: ${VALID_PILLARS.join(', ')}`);
@@ -654,6 +671,272 @@ async function setStageStatus(req, res, params) {
 }
 
 /**
+ * PATCH /api/templates/:versionId/stages/:stage/name
+ * Renames a stage. Same fork-on-edit rule as every other template edit — if
+ * the version has active projects, forks first and applies the rename to
+ * the new version so existing projects keep seeing the name they started
+ * with.
+ */
+async function renameStage(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+  if (!['admin','project_manager'].includes(user.system_role)) return sendError(res, 403, 'Forbidden');
+
+  const versionId   = parseInt(params.versionId, 10);
+  const stageNumber = parseInt(params.stage, 10);
+  if (!versionId || isNaN(stageNumber)) return sendError(res, 400, 'Invalid ids');
+
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
+  const name = body.name?.trim();
+  if (!name) return sendError(res, 400, 'name is required');
+  if (name.length > 100) return sendError(res, 400, 'name must be 100 characters or fewer');
+
+  const [[tv]] = await pool.execute('SELECT version FROM template_versions WHERE id = ?', [versionId]);
+  if (!tv) return sendError(res, 404, 'Template version not found');
+
+  const [[stageRow]] = await pool.execute(
+    'SELECT id FROM template_stages WHERE template_version_id = ? AND stage_number = ?',
+    [versionId, stageNumber]
+  );
+  if (!stageRow) return sendError(res, 404, 'Stage not found in this template version');
+
+  const cnt = await projectCount(tv.version);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    let targetVersionId = versionId;
+    let forked = false;
+    let newVersion = null;
+
+    if (cnt > 0) {
+      const fork = await forkVersion(conn, versionId, user.id);
+      targetVersionId = fork.id;
+      newVersion      = fork.version;
+      forked          = true;
+      await auditLog.log(conn, {
+        userId: user.id, action: 'template_version_created',
+        detail: { reason: 'stage_rename', new_version: newVersion },
+      });
+    }
+
+    await conn.execute(
+      'UPDATE template_stages SET name = ? WHERE template_version_id = ? AND stage_number = ?',
+      [name, targetVersionId, stageNumber]
+    );
+
+    await auditLog.log(conn, {
+      userId: user.id, action: 'template_stage_renamed',
+      detail: { version_id: targetVersionId, stage_number: stageNumber, name, forked },
+    });
+
+    await conn.commit();
+    sendJSON(res, 200, { updated: true, forked, new_version_id: forked ? targetVersionId : null, new_version: newVersion });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * POST /api/templates/:versionId/stages
+ * Adds a new stage, appended after the highest existing stage_number — never
+ * inserted mid-sequence, so existing stage numbers stay a stable anchor for
+ * everything that already references them (checklist items, gate approvers,
+ * and — for projects already using this version — project_stages,
+ * gate_decisions, document_register). Body: { name }.
+ * Same fork-on-edit rule: forks first if the version has active projects.
+ */
+async function addStage(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+  if (!['admin','project_manager'].includes(user.system_role)) return sendError(res, 403, 'Forbidden');
+
+  const versionId = parseInt(params.versionId, 10);
+  if (!versionId) return sendError(res, 400, 'Invalid versionId');
+
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
+  const name = body.name?.trim();
+  if (!name) return sendError(res, 400, 'name is required');
+  if (name.length > 100) return sendError(res, 400, 'name must be 100 characters or fewer');
+
+  const [[tv]] = await pool.execute('SELECT version FROM template_versions WHERE id = ?', [versionId]);
+  if (!tv) return sendError(res, 404, 'Template version not found');
+
+  const cnt = await projectCount(tv.version);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    let targetVersionId = versionId;
+    let forked = false;
+    let newVersion = null;
+
+    if (cnt > 0) {
+      const fork = await forkVersion(conn, versionId, user.id);
+      targetVersionId = fork.id;
+      newVersion      = fork.version;
+      forked          = true;
+      await auditLog.log(conn, {
+        userId: user.id, action: 'template_version_created',
+        detail: { reason: 'stage_added', new_version: newVersion },
+      });
+    }
+
+    const [[{ maxStage }]] = await conn.execute(
+      'SELECT MAX(stage_number) AS maxStage FROM template_stages WHERE template_version_id = ?',
+      [targetVersionId]
+    );
+    const nextStage = maxStage == null ? 0 : maxStage + 1;
+    if (nextStage > MAX_STAGE_NUMBER) {
+      await conn.rollback();
+      return sendError(res, 400,
+        `Cannot add another stage — this template already has the maximum of ${MAX_STAGE_NUMBER + 1} stages`);
+    }
+
+    await conn.execute(
+      'INSERT INTO template_stages (template_version_id, stage_number, name) VALUES (?, ?, ?)',
+      [targetVersionId, nextStage, name]
+    );
+
+    await auditLog.log(conn, {
+      userId: user.id, action: 'template_stage_added',
+      detail: { version_id: targetVersionId, stage_number: nextStage, name, forked },
+    });
+
+    await conn.commit();
+    sendJSON(res, 201, { stage_number: nextStage, forked, new_version_id: forked ? targetVersionId : null, new_version: newVersion });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * POST /api/templates/:versionId/stages/:stage/reorder
+ * Body: { direction: 'up' | 'down' }
+ *
+ * Swaps this stage with its adjacent neighbour in the stage order. Follows
+ * the same fork-on-edit rule as everything else — the swap always lands on
+ * a version with zero projects using it (either it already had none, or the
+ * fork just created a fresh one), so it can never renumber a stage that an
+ * in-flight project's project_stages / gate_decisions / document_register
+ * rows already reference by number. Those project-instance tables are never
+ * touched by this endpoint — only the three template-scoped tables below.
+ */
+async function reorderStage(req, res, params) {
+  const user = await requireLogin(req, res);
+  if (!user) return;
+  if (!['admin','project_manager'].includes(user.system_role)) return sendError(res, 403, 'Forbidden');
+
+  const versionId   = parseInt(params.versionId, 10);
+  const stageNumber = parseInt(params.stage, 10);
+  if (!versionId || isNaN(stageNumber)) return sendError(res, 400, 'Invalid ids');
+
+  let body;
+  try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
+  if (!['up','down'].includes(body.direction)) {
+    return sendError(res, 400, "direction must be 'up' or 'down'");
+  }
+
+  const [[tv]] = await pool.execute('SELECT version FROM template_versions WHERE id = ?', [versionId]);
+  if (!tv) return sendError(res, 404, 'Template version not found');
+
+  const cnt = await projectCount(tv.version);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    let targetVersionId = versionId;
+    let forked = false;
+    let newVersion = null;
+
+    if (cnt > 0) {
+      const fork = await forkVersion(conn, versionId, user.id);
+      targetVersionId = fork.id;
+      newVersion      = fork.version;
+      forked          = true;
+      await auditLog.log(conn, {
+        userId: user.id, action: 'template_version_created',
+        detail: { reason: 'stage_reorder', new_version: newVersion },
+      });
+    }
+
+    const [stageRows] = await conn.execute(
+      'SELECT stage_number FROM template_stages WHERE template_version_id = ? ORDER BY stage_number',
+      [targetVersionId]
+    );
+    const numbers = stageRows.map(r => r.stage_number);
+    const idx = numbers.indexOf(stageNumber);
+    if (idx === -1) {
+      await conn.rollback();
+      return sendError(res, 404, 'Stage not found in this template version');
+    }
+    const neighborIdx = body.direction === 'up' ? idx - 1 : idx + 1;
+    if (neighborIdx < 0 || neighborIdx >= numbers.length) {
+      await conn.rollback();
+      return sendError(res, 400,
+        `Stage ${stageNumber} is already at the ${body.direction === 'up' ? 'top' : 'bottom'}`);
+    }
+    const a = stageNumber;
+    const b = numbers[neighborIdx];
+
+    // SECURITY NOTE re: table names interpolated below — these three strings
+    // come from a fixed local array, never from request input, so this is
+    // not a SQL-injection vector; every actual VALUE in these statements
+    // still goes through a `?` placeholder. MySQL simply has no placeholder
+    // syntax for identifiers (table/column names), so a literal table name
+    // is the only way to run the same statement shape against all three
+    // tables without hand-duplicating it three times.
+    //
+    // A direct two-step swap (a->b, b->a) would collide with each table's
+    // own UNIQUE(template_version_id, stage_number, ...) constraint
+    // mid-transaction, so this goes through a temporary sentinel value
+    // instead: a -> SENTINEL -> (old b's slot), b -> a's old slot.
+    // TINYINT UNSIGNED's max (255) is a safe sentinel — MAX_STAGE_NUMBER
+    // (30) guarantees no real stage number will ever reach it.
+    const SENTINEL = 255;
+    const tables = ['template_stages', 'template_checklist_items', 'template_gate_approvers'];
+    for (const table of tables) {
+      await conn.execute(
+        `UPDATE ${table} SET stage_number = ? WHERE template_version_id = ? AND stage_number = ?`,
+        [SENTINEL, targetVersionId, a]
+      );
+      await conn.execute(
+        `UPDATE ${table} SET stage_number = ? WHERE template_version_id = ? AND stage_number = ?`,
+        [a, targetVersionId, b]
+      );
+      await conn.execute(
+        `UPDATE ${table} SET stage_number = ? WHERE template_version_id = ? AND stage_number = ?`,
+        [b, targetVersionId, SENTINEL]
+      );
+    }
+
+    await auditLog.log(conn, {
+      userId: user.id, action: 'template_stage_reordered',
+      detail: { version_id: targetVersionId, swapped: [a, b], direction: body.direction, forked },
+    });
+
+    await conn.commit();
+    sendJSON(res, 200, {
+      updated: true, swapped: [a, b], forked,
+      new_version_id: forked ? targetVersionId : null, new_version: newVersion,
+    });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
  * DELETE /api/templates/:versionId/gate-approvers/:stage
  * Clears the entire configured chain for a stage (reverts to system defaults).
  */
@@ -894,4 +1177,5 @@ module.exports = {
   listVersions, getActive, getItems, addItem, editItem, setItemStatus, setStageStatus,
   publishVersion, createVersion, setActive, deleteVersion,
   getGateApprovers, setGateApprovers, clearGateApprovers,
+  renameStage, addStage, reorderStage,
 };

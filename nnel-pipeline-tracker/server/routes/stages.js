@@ -18,6 +18,7 @@ const {
 const { sendJSON, sendError } = require('../utils/response');
 const { readBody } = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
+const { MAX_STAGE_NUMBER } = require('../constants');
 
 // ---------------------------------------------------------------------------
 // GET /api/projects/:id/stages/:stage
@@ -30,7 +31,7 @@ async function getStage(req, res, params) {
 
   const projectId = parseInt(params.id, 10);
   const stageNumber = parseInt(params.stage, 10);
-  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > 5) {
+  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > MAX_STAGE_NUMBER) {
     return sendError(res, 400, 'Invalid project id or stage number');
   }
 
@@ -82,7 +83,7 @@ async function getChecklist(req, res, params) {
 
   const projectId = parseInt(params.id, 10);
   const stageNumber = parseInt(params.stage, 10);
-  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > 5) {
+  if (!projectId || isNaN(stageNumber) || stageNumber < 0 || stageNumber > MAX_STAGE_NUMBER) {
     return sendError(res, 400, 'Invalid project id or stage number');
   }
 

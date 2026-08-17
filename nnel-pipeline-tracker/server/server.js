@@ -167,6 +167,15 @@ async function handleRequest(req, res) {
   if (params = match('/api/templates/:versionId/stages/:stage/status', path)) {
     if (method === 'PATCH') return templateRoutes.setStageStatus(req, res, params);
   }
+  if (params = match('/api/templates/:versionId/stages/:stage/name', path)) {
+    if (method === 'PATCH') return templateRoutes.renameStage(req, res, params);
+  }
+  if (params = match('/api/templates/:versionId/stages/:stage/reorder', path)) {
+    if (method === 'POST') return templateRoutes.reorderStage(req, res, params);
+  }
+  if (params = match('/api/templates/:versionId/stages', path)) {
+    if (method === 'POST') return templateRoutes.addStage(req, res, params);
+  }
   if (params = match('/api/templates/:versionId/publish', path)) {
     if (method === 'POST') return templateRoutes.publishVersion(req, res, params);
   }
