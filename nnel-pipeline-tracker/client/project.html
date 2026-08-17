@@ -40,7 +40,17 @@
   <!-- Pipeline stage strip -->
   <div class="pipeline-strip" id="pipeline-strip" style="display:none;">
     <div class="container">
-      <div class="stage-strip" id="stage-strip"></div>
+      <div class="stage-strip-wrap">
+        <button type="button" class="stage-nav-btn hidden" id="stage-nav-left" title="Show earlier stages" aria-label="Show earlier stages">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="8.5,2.5 3.5,7 8.5,11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+        </button>
+        <div class="stage-strip-viewport">
+          <div class="stage-strip" id="stage-strip"></div>
+        </div>
+        <button type="button" class="stage-nav-btn hidden" id="stage-nav-right" title="Show later stages" aria-label="Show later stages">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="4,2.5 9,7 4,11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"/><polyline points="8,2.5 13,7 8,11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+        </button>
+      </div>
     </div>
   </div>
 

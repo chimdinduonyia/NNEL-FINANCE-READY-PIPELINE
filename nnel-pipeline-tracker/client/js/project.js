@@ -183,6 +183,8 @@ function renderHeader() {
 }
 
 // ---- Pipeline strip --------------------------------------------------------
+let stageScrollOffset = 0; // px the strip is currently shifted left by
+
 function renderPipelineStrip() {
   const el   = document.getElementById('pipeline-strip');
   const wrap = document.getElementById('stage-strip');
@@ -237,8 +239,53 @@ function renderPipelineStrip() {
     });
   });
 
+  setupStageNav(wrap);
+
   el.style.display = 'block';
   document.getElementById('tabs-bar').style.display = 'block';
+}
+
+// No horizontal scroll — the »/« buttons shift the strip left/right one
+// stage at a time via a CSS transform, clicking repeatedly (or holding
+// through it) until the far-right stage comes into view. Buttons use
+// .onclick assignment rather than addEventListener since they're static
+// elements re-wired on every render — that overwrites the previous handler
+// instead of stacking a new one each time.
+function setupStageNav(stripEl) {
+  const viewportEl = document.querySelector('.stage-strip-viewport');
+  const leftBtn    = document.getElementById('stage-nav-left');
+  const rightBtn   = document.getElementById('stage-nav-right');
+  if (!viewportEl || !leftBtn || !rightBtn) return;
+
+  const maxOffset = Math.max(0, stripEl.scrollWidth - viewportEl.clientWidth);
+
+  if (maxOffset <= 0) {
+    stageScrollOffset = 0;
+    stripEl.style.transform = 'translateX(0)';
+    leftBtn.classList.add('hidden');
+    rightBtn.classList.add('hidden');
+    return;
+  }
+
+  stageScrollOffset = Math.min(stageScrollOffset, maxOffset);
+  const stepWidth = stripEl.querySelector('.stage-node')?.offsetWidth || 130;
+
+  const applyOffset = () => {
+    stripEl.style.transform = `translateX(-${stageScrollOffset}px)`;
+    leftBtn.classList.toggle('hidden', stageScrollOffset <= 0);
+    rightBtn.classList.toggle('hidden', stageScrollOffset >= maxOffset);
+  };
+
+  leftBtn.onclick = () => {
+    stageScrollOffset = Math.max(0, stageScrollOffset - stepWidth);
+    applyOffset();
+  };
+  rightBtn.onclick = () => {
+    stageScrollOffset = Math.min(maxOffset, stageScrollOffset + stepWidth);
+    applyOffset();
+  };
+
+  applyOffset();
 }
 
 // Switch to history snapshot for an approved stage

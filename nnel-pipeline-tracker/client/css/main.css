@@ -849,16 +849,36 @@ textarea { resize: vertical; min-height: 80px; }
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   padding: 20px 0;
-  overflow-x: auto;
 }
+/* No horizontal scroll -- the viewport clips a fixed-width track and the
+   »/« buttons shift it left/right one stage at a time via transform, so
+   the strip stays readable even once there are many stages. */
+.stage-strip-wrap { display: flex; align-items: center; gap: 8px; }
+.stage-strip-viewport { flex: 1; min-width: 0; overflow: hidden; }
 .stage-strip {
   display: flex;
   align-items: flex-start;
   gap: 0;
-  min-width: 640px;
+  transition: transform 0.25s ease;
 }
+.stage-nav-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--gray-700);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.stage-nav-btn:hover { background: var(--gray-100); color: var(--gray-900); }
 .stage-node {
-  flex: 1;
+  flex: 0 0 130px;
+  width: 130px;
   display: flex;
   flex-direction: column;
   align-items: center;
