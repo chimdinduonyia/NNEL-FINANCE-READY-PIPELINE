@@ -215,10 +215,14 @@ function renderProjectCard(p) {
     ? `<span class="text-sm text-muted">${p.days_since_submitted}d awaiting decision</span>` : '';
 
   // Overall progress: completed stages + partial credit for current stage checklist.
-  // 6 stages total (0–5). stage_pct is the % of the current stage's checklist done.
+  // Total stage count comes from THIS project's own template (max_stage_number
+  // is 0-indexed, so +1 for the count) -- not a fixed 6, since a lightweight
+  // template can have fewer stages. stage_pct is the % of the current stage's
+  // checklist done.
+  const totalStages = (p.max_stage_number ?? 5) + 1;
   const pct = p.status === 'completed'
     ? 100
-    : Math.min(99, Math.round(((p.current_stage + Number(p.stage_pct ?? 0) / 100) / 6) * 100));
+    : Math.min(99, Math.round(((p.current_stage + Number(p.stage_pct ?? 0) / 100) / totalStages) * 100));
   const barColor = p.status === 'completed'
     ? 'var(--green-600)'
     : p.is_at_risk
@@ -247,7 +251,7 @@ function renderProjectCard(p) {
         <span style="font-size:11px;color:var(--text-muted);">
           ${p.status === 'completed' ? 'Complete' : `${pct}% through pipeline`}
         </span>
-        <span style="font-size:11px;font-weight:600;color:var(--text-muted);">Stage ${p.current_stage}/5</span>
+        <span style="font-size:11px;font-weight:600;color:var(--text-muted);">Stage ${p.current_stage}/${p.max_stage_number ?? 5}</span>
       </div>
       <div style="height:5px;background:var(--gray-200);border-radius:99px;overflow:hidden;">
         <div style="height:100%;width:${pct}%;background:${barColor};border-radius:99px;transition:width .4s;"></div>

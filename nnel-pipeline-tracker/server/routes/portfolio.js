@@ -59,6 +59,14 @@ async function getPortfolio(req, res) {
       ps.review_round,
       DATEDIFF(NOW(), ps.submitted_at) AS days_since_submitted,
       ts_cur.name AS stage_name_db,
+      -- Highest stage that actually has at least one active checklist item --
+      -- NOT just the highest stage_number template_stages happens to have a
+      -- name for. A stage with zero active items is auto-skipped/hidden from
+      -- the stepper (see projects.js is_deactivated / stageService's
+      -- advanceProject), so the denominator shown here needs to match what's
+      -- actually visible, not the raw count of named-but-possibly-empty rows.
+      (SELECT MAX(tci.stage_number) FROM template_checklist_items tci
+       WHERE tci.template_version_id = tv_cur.id AND tci.is_active = 1) AS max_stage_number,
       (SELECT COUNT(*) FROM gate_conditions gc
        JOIN gate_decisions gd ON gd.id = gc.gate_decision_id
        WHERE gc.project_id = p.id
@@ -104,6 +112,11 @@ async function getPortfolio(req, res) {
     ...p,
     funnel_stage: getFunnelStage(p.current_stage),
     stage_name:   p.stage_name_db ?? `Stage ${p.current_stage}`,
+    // Last stage number for THIS project's own template (not a fixed 5) --
+    // a lightweight template can have fewer stages. Falls back to 5 (the
+    // original fixed 6-stage pipeline) only if template_stages somehow has
+    // no rows for this version.
+    max_stage_number: p.max_stage_number ?? 5,
     has_open_conditions: Number(p.open_conditions) > 0,
     open_conditions: Number(p.open_conditions),
     days_since_submitted: p.submitted_at ? Number(p.days_since_submitted) : null,

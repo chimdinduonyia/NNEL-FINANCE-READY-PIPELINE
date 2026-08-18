@@ -819,7 +819,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* Presence — Teams/Google-Docs-style overlapping avatar stack of who's
    currently active (dashboard: portal-wide; project view: project members) */
-.presence-row { display: flex; align-items: center; gap: 12px; }
+.presence-row { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .presence-label { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .avatar-stack { display: flex; align-items: center; }
 .avatar-stack-item {
