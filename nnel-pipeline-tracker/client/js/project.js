@@ -912,12 +912,17 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
           });
           row.dataset.saved = 'true';
           row.dataset.docId = result.id;
-          // Lock the row and show a compact "saved" state
+          // Lock the row and show a compact "saved" state. Straight/geometric
+          // tick (matching the stepper's stage-complete icon) instead of the
+          // Unicode ✓ character, which renders with a cursive curl in most fonts.
           row.querySelectorAll('input, select').forEach(f => { f.disabled = true; });
-          saveBtn.replaceWith(Object.assign(document.createElement('span'), {
-            className: 'badge badge-green',
-            textContent: '✓ Saved',
-          }));
+          const savedBadge = document.createElement('span');
+          savedBadge.className = 'badge badge-green';
+          savedBadge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+          savedBadge.innerHTML = `<svg width="10" height="9" viewBox="0 0 13 11" fill="none">
+            <polyline points="1.5,5.5 4.5,9 11.5,1.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+          </svg> Saved`;
+          saveBtn.replaceWith(savedBadge);
         } catch (err) {
           rowErrEl.textContent = err.message;
           rowErrEl.classList.remove('hidden');
