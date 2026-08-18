@@ -53,7 +53,7 @@ async function getPortfolio(req, res) {
   let query = `
     SELECT
       p.id, p.name, p.description, p.capex_usd, p.current_stage,
-      p.status, p.technology, p.is_at_risk, p.created_at,
+      p.status, p.technology, p.location, p.is_at_risk, p.created_at,
       ps.status         AS stage_status,
       ps.submitted_at,
       ps.review_round,

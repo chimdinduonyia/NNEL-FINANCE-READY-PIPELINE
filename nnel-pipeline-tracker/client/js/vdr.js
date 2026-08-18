@@ -4,6 +4,7 @@
 let projects = [];
 const openProjects = new Set(); // project ids currently expanded
 const docsCache = {};           // project id -> documents array, fetched lazily
+let searchQuery = '';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const user = await api.getMe();
@@ -12,6 +13,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   api.initSidebar(user);
   await loadProjects();
+
+  document.getElementById('vdr-search').addEventListener('input', (e) => {
+    searchQuery = e.target.value.trim().toLowerCase();
+    render();
+  });
 });
 
 async function loadProjects() {
@@ -33,7 +39,16 @@ function render() {
     return;
   }
 
-  card.innerHTML = projects.map(p => {
+  const visible = searchQuery
+    ? projects.filter(p => [p.name, p.technology].some(f => f && f.toLowerCase().includes(searchQuery)))
+    : projects;
+
+  if (visible.length === 0) {
+    card.innerHTML = `<div class="card-body"><div class="empty">No projects match "${api.fmt.escape(searchQuery)}".</div></div>`;
+    return;
+  }
+
+  card.innerHTML = visible.map(p => {
     const isOpen = openProjects.has(p.id);
     const docs = docsCache[p.id];
     return `<div class="vdr-project-item" data-pid="${p.id}">

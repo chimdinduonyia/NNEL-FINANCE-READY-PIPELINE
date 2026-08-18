@@ -325,7 +325,10 @@ async function update(req, res, params) {
     if (statusChanging) {
       await auditLog.log(conn, {
         userId: user.id, action: 'document_status_updated', projectId,
-        detail: { document_id: docId, old_status: doc.status, new_status: body.status },
+        // uploaded_by lets notifications target only the document's own
+        // uploader (their document was approved/returned) instead of the
+        // whole project team.
+        detail: { document_id: docId, old_status: doc.status, new_status: body.status, uploaded_by: doc.uploaded_by },
       });
     } else {
       await auditLog.log(conn, {

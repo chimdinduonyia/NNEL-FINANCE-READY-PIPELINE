@@ -9,6 +9,7 @@ let rejectedList  = [];
 let activeFunnel  = null;   // null = all
 let filterPending = false;
 let filterAtRisk  = false;
+let searchQuery   = '';
 
 const FUNNEL_LABELS = { horizon:'Horizon', hopper:'Hopper', funnel:'Funnel', project:'Project' };
 const FUNNEL_ORDER  = ['horizon','hopper','funnel','project'];
@@ -26,6 +27,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   renderActiveNow();
   await refresh();
+
+  document.getElementById('project-search').addEventListener('input', (e) => {
+    searchQuery = e.target.value.trim().toLowerCase();
+    renderProjects();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -188,13 +194,19 @@ function renderProjects() {
   if (activeFunnel)   filtered = filtered.filter(p => p.funnel_stage === activeFunnel);
   if (filterPending)  filtered = filtered.filter(p => p.stage_status === 'submitted');
   if (filterAtRisk)   filtered = filtered.filter(p => p.is_at_risk);
+  if (searchQuery) {
+    filtered = filtered.filter(p =>
+      [p.name, p.technology, p.location].some(f => f && f.toLowerCase().includes(searchQuery)));
+  }
 
   const label = activeFunnel ? FUNNEL_LABELS[activeFunnel] : 'All Projects';
   document.getElementById('section-title').textContent = `${label} (${filtered.length})`;
 
   const el = document.getElementById('projects-grid');
   if (filtered.length === 0) {
-    el.innerHTML = '<div class="empty">No projects match the current filters.</div>';
+    el.innerHTML = searchQuery
+      ? `<div class="empty">No projects match "${api.fmt.escape(searchQuery)}".</div>`
+      : '<div class="empty">No projects match the current filters.</div>';
     return;
   }
 

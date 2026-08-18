@@ -29,11 +29,13 @@
     <div class="app-content">
 
   <main class="container page-main">
-    <div class="flex items-center justify-between" style="margin-bottom:20px;">
+    <div class="flex items-center justify-between" style="margin-bottom:20px;flex-wrap:wrap;gap:12px;">
       <div>
         <h1 style="font-size:24px;font-weight:800;">Documents</h1>
         <p class="text-muted text-sm mt-4">Every document you've uploaded, across every project.</p>
       </div>
+      <input type="text" id="doc-search" placeholder="Search by title, project, or folder…"
+        style="min-width:260px;padding:9px 14px;border:1px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:13px;">
     </div>
 
     <div class="card" id="documents-card" style="overflow:hidden;">

@@ -1081,6 +1081,22 @@ async function renderGate(el) {
       <div style="font-size:13px;color:var(--gray-700);line-height:1.55;white-space:pre-wrap;">${api.fmt.escape(stageData.submission_summary)}</div>` : ''}
   </div>`);
 
+  // Approver decision form (only if next in chain) - placed right under the
+  // approval status card, ahead of the documents section, so the GO/NO-GO
+  // action is the first thing an approver sees rather than having to scroll
+  // past the document list to find it.
+  if (isGateApprover() && stage?.status === 'submitted') {
+    // Only block GO if a gate approver explicitly returned at least one document
+    // (updated_by is a gate approver on this project). Documents that were simply
+    // never submitted by the team are 'outstanding' but are not a gate-approver action.
+    const hasReturnedDocs = stageDocs.some(d =>
+      d.status === 'outstanding' &&
+      d.updated_by != null &&
+      project.members.some(m => m.user_id === d.updated_by && m.role === 'gate_approver')
+    );
+    parts.push(renderDecisionForm(stageNum, hasReturnedDocs));
+  }
+
   // Stage documents - only the gate approver(s) in the required chain may approve/return
   if (stageDocs.length > 0 || stage?.status === 'submitted') {
     const myAuthorities = project.members
@@ -1116,19 +1132,6 @@ async function renderGate(el) {
       <h4 style="font-size:14px;font-weight:700;margin-bottom:16px;">Gate Decision History</h4>
       ${renderDecisionChain(decisions)}
     </div>`);
-  }
-
-  // Approver decision form (only if next in chain)
-  if (isGateApprover() && stage?.status === 'submitted') {
-    // Only block GO if a gate approver explicitly returned at least one document
-    // (updated_by is a gate approver on this project). Documents that were simply
-    // never submitted by the team are 'outstanding' but are not a gate-approver action.
-    const hasReturnedDocs = stageDocs.some(d =>
-      d.status === 'outstanding' &&
-      d.updated_by != null &&
-      project.members.some(m => m.user_id === d.updated_by && m.role === 'gate_approver')
-    );
-    parts.push(renderDecisionForm(stageNum, hasReturnedDocs));
   }
 
   // Re-open form (admin or approver on approved/rejected/conditional stage)
@@ -1169,6 +1172,62 @@ async function renderGate(el) {
       }
     });
   });
+
+  // Wire up bulk approve/return: select several "submitted" documents at
+  // once instead of clicking Approve/Return on each one individually. Each
+  // document is still updated through the same single-document endpoint
+  // (full permission/segregation-of-duties check per document, same as the
+  // individual buttons above) - this just loops the calls and reports back
+  // if any of them failed rather than assuming all-or-nothing.
+  const selectAllCb = el.querySelector('#doc-select-all');
+  const rowCbs       = () => Array.from(el.querySelectorAll('.doc-select-cb'));
+  const bulkBar       = el.querySelector('#doc-bulk-bar');
+  const bulkCountEl   = el.querySelector('#doc-bulk-count');
+  const bulkApproveBtn = el.querySelector('#doc-bulk-approve-btn');
+  const bulkReturnBtn  = el.querySelector('#doc-bulk-return-btn');
+
+  function refreshBulkBar() {
+    if (!bulkBar) return;
+    const checked = rowCbs().filter(cb => cb.checked);
+    bulkBar.classList.toggle('hidden', checked.length === 0);
+    if (bulkCountEl) bulkCountEl.textContent = `${checked.length} selected`;
+    if (selectAllCb) {
+      selectAllCb.checked = checked.length > 0 && checked.length === rowCbs().length;
+      selectAllCb.indeterminate = checked.length > 0 && checked.length < rowCbs().length;
+    }
+  }
+
+  selectAllCb?.addEventListener('change', () => {
+    rowCbs().forEach(cb => { cb.checked = selectAllCb.checked; });
+    refreshBulkBar();
+  });
+  rowCbs().forEach(cb => cb.addEventListener('change', refreshBulkBar));
+
+  async function bulkUpdate(newStatus, confirmMsg) {
+    const checked = rowCbs().filter(cb => cb.checked);
+    if (checked.length === 0) return;
+    if (!confirm(confirmMsg(checked.length))) return;
+
+    bulkApproveBtn.disabled = true;
+    bulkReturnBtn.disabled  = true;
+    const failures = [];
+    for (const cb of checked) {
+      try {
+        await api.patch(`/api/projects/${projectId}/documents/${cb.dataset.docId}`, { status: newStatus });
+      } catch (err) {
+        failures.push(err.message || 'Unknown error');
+      }
+    }
+    if (failures.length > 0) {
+      alert(`${checked.length - failures.length} of ${checked.length} document(s) updated.\n\nFailed:\n` + failures.join('\n'));
+    }
+    await renderGate(el);
+  }
+
+  bulkApproveBtn?.addEventListener('click', () => bulkUpdate('approved',
+    n => `Approve ${n} selected document${n > 1 ? 's' : ''}?\n\nYou can undo each one individually until you record the final gate decision.`));
+  bulkReturnBtn?.addEventListener('click', () => bulkUpdate('outstanding',
+    n => `Return ${n} selected document${n > 1 ? 's' : ''} to the project team for revision?\n\nThey will be marked Outstanding so their uploaders can edit and resubmit.`));
 
   // Wire up status dropdowns in gate tab
   el.querySelectorAll('.doc-status-select').forEach(sel => {
@@ -1944,6 +2003,10 @@ function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
     <line x1="8" y1="1" x2="1" y2="8" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/>
   </svg>`;
 
+  // Whether there's anything for an approver to bulk-select at all - drives
+  // both the checkbox column and the bulk action bar above the table.
+  const hasSelectable = canApprove && docs.some(d => d.status === 'submitted');
+
   const docRows = docs.map(d => {
     // ---- STATUS CELL ----
     let statusCell;
@@ -2018,7 +2081,14 @@ function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
            style="color:var(--red-700);padding:3px 8px;font-size:12px;">✕</button>`
       : '';
 
+    // Bulk-select checkbox: only for documents an approver can actually act on
+    // right now (same population as the individual Approve/Return buttons).
+    const selectCell = (canApprove && d.status === 'submitted')
+      ? `<input type="checkbox" class="doc-select-cb" data-doc-id="${d.id}">`
+      : '';
+
     return `<tr>
+      ${hasSelectable ? `<td>${selectCell}</td>` : ''}
       <td>${api.fmt.escape(d.title)}</td>
       <td class="text-sm text-muted">${d.folder_code ?? ''} ${d.folder_name ? ': ' + api.fmt.escape(d.folder_name) : ''}</td>
       <td>${statusCell}</td>
@@ -2031,11 +2101,24 @@ function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
   const tableHtml = docs.length
     ? `<table class="doc-table" style="width:100%;">
         <thead><tr>
+          ${hasSelectable ? `<th style="width:28px;"><input type="checkbox" id="doc-select-all"></th>` : ''}
           <th>Title</th><th>VDR Folder</th><th>Status</th><th>File Reference</th><th>Uploaded By</th><th></th>
         </tr></thead>
         <tbody>${docRows}</tbody>
        </table>`
     : '<p class="text-sm text-muted" style="padding:12px 0;">No documents submitted for this stage yet.</p>';
+
+  // Bulk action bar: lets an approver tick several "submitted" documents and
+  // approve or return them all in one go, instead of one at a time - shows
+  // only once something is actually selected.
+  const bulkBarHtml = hasSelectable ? `
+    <div class="stage-doc-bulk-bar hidden" id="doc-bulk-bar"
+      style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--gray-50);border:1px solid var(--border);border-bottom:none;border-radius:var(--radius-lg) var(--radius-lg) 0 0;">
+      <span class="text-sm" id="doc-bulk-count" style="font-weight:600;"></span>
+      <button type="button" class="btn btn-primary btn-sm" id="doc-bulk-approve-btn"
+        style="background:#1B6B3A;">Approve Selected</button>
+      <button type="button" class="btn btn-danger btn-sm" id="doc-bulk-return-btn">Return Selected</button>
+    </div>` : '';
 
   // Documents are added by attaching them to an evidence note when ticking a
   // checklist item (see showEvidenceModal) -- there's no standalone add-form
@@ -2045,7 +2128,8 @@ function renderStageDocs(docs, stageNum, canApprove, stageIsOpen = false) {
       Stage ${stageNum} Documents
       ${canApprove ? '<span class="badge badge-amber" style="margin-left:8px;font-size:11px;">Review &amp; Approve</span>' : ''}
     </h3>
-    <div class="card" style="overflow:hidden;">${tableHtml}</div>
+    ${bulkBarHtml}
+    <div class="card" style="overflow:hidden;${hasSelectable ? 'border-top-left-radius:0;border-top-right-radius:0;' : ''}">${tableHtml}</div>
   </div>`;
 }
 

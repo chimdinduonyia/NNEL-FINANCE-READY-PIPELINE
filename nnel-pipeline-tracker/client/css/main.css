@@ -978,7 +978,6 @@ textarea { resize: vertical; min-height: 80px; }
   gap: 14px;
   background: var(--gray-100);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--gray-400);
   border-radius: var(--radius-lg);
   padding: 14px 18px;
   margin-bottom: 24px;

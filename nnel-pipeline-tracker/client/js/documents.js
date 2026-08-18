@@ -1,6 +1,8 @@
 /* documents.js - "my document upload footprint" page (regular users) */
 'use strict';
 
+let allDocs = [];
+
 document.addEventListener('DOMContentLoaded', async () => {
   const user = await api.getMe();
   if (!user) return;
@@ -8,16 +10,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   api.initSidebar(user);
 
   const card = document.getElementById('documents-card');
-  let docs;
   try {
-    docs = await api.get('/api/documents/mine');
+    allDocs = await api.get('/api/documents/mine');
   } catch (err) {
     card.innerHTML = `<div class="card-body"><div class="error-msg">${api.fmt.escape(err.message)}</div></div>`;
     return;
   }
 
-  if (docs.length === 0) {
+  renderDocs(allDocs);
+
+  const searchEl = document.getElementById('doc-search');
+  searchEl.addEventListener('input', () => {
+    const q = searchEl.value.trim().toLowerCase();
+    const filtered = q
+      ? allDocs.filter(d => [d.title, d.project_name, d.folder_code, d.folder_name, d.status]
+          .some(f => f && f.toLowerCase().includes(q)))
+      : allDocs;
+    renderDocs(filtered, q);
+  });
+});
+
+function renderDocs(docs, activeQuery = '') {
+  const card = document.getElementById('documents-card');
+
+  if (allDocs.length === 0) {
     card.innerHTML = `<div class="card-body"><div class="empty">You haven't uploaded any documents yet.</div></div>`;
+    return;
+  }
+  if (docs.length === 0) {
+    card.innerHTML = `<div class="card-body"><div class="empty">No documents match "${api.fmt.escape(activeQuery)}".</div></div>`;
     return;
   }
 
@@ -36,4 +57,4 @@ document.addEventListener('DOMContentLoaded', async () => {
   </div>`).join('');
 
   card.innerHTML = head + rows;
-});
+}
