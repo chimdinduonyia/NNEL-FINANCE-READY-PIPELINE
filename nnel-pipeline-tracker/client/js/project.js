@@ -736,7 +736,7 @@ async function handleCheckToggle(cb, stageNum) {
     const itemDesc = itemEl?.querySelector('.item-desc')?.textContent ?? '';
     // Any reference documents are already saved by this point - each row in
     // the modal posts itself individually (see showEvidenceModal).
-    const result = await showEvidenceModal({ itemCode, itemDesc, stageNum });
+    const result = await showEvidenceModal({ itemId, itemCode, itemDesc, stageNum });
     if (result.cancelled) { cb.checked = false; return; }
     evidenceNote = result.evidenceNote;
   }
@@ -766,7 +766,7 @@ async function handleEvidenceEdit(btn) {
   const itemDesc = itemEl?.querySelector('.item-desc')?.textContent ?? '';
   const existingNote = itemEl?.querySelector('.item-evidence-display')?.textContent.replace(/^↳\s*/, '') ?? '';
 
-  const result = await showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote });
+  const result = await showEvidenceModal({ itemId, itemCode, itemDesc, stageNum, existingNote });
   if (result.cancelled) return;
 
   btn.disabled = true;
@@ -803,7 +803,7 @@ let evDocRowSeq = 0; // unique id per row, so rows can be removed individually
 // Documents already saved this way stay saved even if the modal is then
 // Cancelled - Cancel only discards the note text, not documents already
 // committed to the server.
-function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) {
+function showEvidenceModal({ itemId, itemCode, itemDesc, stageNum, existingNote = '' }) {
   return new Promise((resolve) => {
     document.getElementById('evidence-modal')?.remove();
     evDocRowSeq = 0;
@@ -845,12 +845,17 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
 
     const rowsEl = modal.querySelector('#ev-doc-rows');
 
-    function addDocRow() {
+    // existingDoc: when set, this row renders a document uploaded in a
+    // previous session (fetched by checklist_item_id) instead of a fresh
+    // blank row - pre-filled, locked, and immediately removable/deletable
+    // just like a row saved earlier in this same session.
+    function addDocRow(existingDoc = null) {
       const rowId = ++evDocRowSeq;
       const row = document.createElement('div');
       row.className = 'ev-doc-row';
       row.dataset.rowId = rowId;
-      row.dataset.saved = 'false';
+      row.dataset.saved = existingDoc ? 'true' : 'false';
+      if (existingDoc) row.dataset.docId = existingDoc.id;
       row.style.cssText = 'border:1px solid var(--border);border-radius:var(--radius);padding:10px;display:flex;flex-direction:column;gap:8px;';
       row.innerHTML = `
         <div class="flex items-center justify-between">
@@ -860,11 +865,11 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
         <div class="form-row">
           <div class="form-group">
             <label>Document Title</label>
-            <input type="text" class="ev-doc-title" placeholder="Document title…">
+            <input type="text" class="ev-doc-title" placeholder="Document title…" value="${existingDoc ? api.fmt.escape(existingDoc.title) : ''}">
           </div>
           <div class="form-group">
             <label>File Reference</label>
-            <input type="text" class="ev-doc-fileref" placeholder="filename.pdf or URL…">
+            <input type="text" class="ev-doc-fileref" placeholder="filename.pdf or URL…" value="${existingDoc?.file_ref ? api.fmt.escape(existingDoc.file_ref) : ''}">
           </div>
         </div>
         <div class="form-group">
@@ -877,21 +882,55 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
         </div>`;
       rowsEl.appendChild(row);
 
-      row.querySelector('.ev-doc-remove').addEventListener('click', async () => {
-        if (row.dataset.saved === 'true') {
-          // Already persisted - removing it means actually deleting it.
-          if (!confirm('This document was already saved. Remove it permanently?')) return;
-          try {
-            await api.delete(`/api/projects/${projectId}/documents/${row.dataset.docId}`);
-          } catch (err) {
-            alert('Could not remove document: ' + err.message);
-            return;
-          }
-        }
-        row.remove();
-      });
+      if (existingDoc?.folder_code) {
+        row.querySelector('.ev-doc-folder').value = existingDoc.folder_code;
+      }
 
-      row.querySelector('.ev-doc-save').addEventListener('click', async () => {
+      const removeBtn = row.querySelector('.ev-doc-remove');
+      // A document already approved by a gate approver is permanently part
+      // of the gate record - the server refuses to delete it, so don't
+      // offer a button that can only ever fail.
+      if (existingDoc?.status === 'approved') {
+        removeBtn.remove();
+      } else {
+        removeBtn.addEventListener('click', async () => {
+          if (row.dataset.saved === 'true') {
+            // Already persisted - removing it means actually deleting it.
+            if (!confirm('This document was already saved. Remove it permanently?')) return;
+            try {
+              await api.delete(`/api/projects/${projectId}/documents/${row.dataset.docId}`);
+            } catch (err) {
+              alert('Could not remove document: ' + err.message);
+              return;
+            }
+          }
+          row.remove();
+        });
+      }
+
+      const saveBtn = row.querySelector('.ev-doc-save');
+
+      // Straight/geometric tick (matching the stepper's stage-complete icon)
+      // instead of the Unicode ✓ character, which renders with a cursive
+      // curl in most fonts.
+      const tickSvg = `<svg width="10" height="9" viewBox="0 0 13 11" fill="none">
+        <polyline points="1.5,5.5 4.5,9 11.5,1.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+      </svg>`;
+
+      if (existingDoc) {
+        // Already on the server - lock the row immediately, no save needed.
+        row.querySelectorAll('input, select').forEach(f => { f.disabled = true; });
+        const badge = document.createElement('span');
+        badge.className = 'badge badge-green';
+        badge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+        badge.innerHTML = existingDoc.status === 'approved'
+          ? `${tickSvg} Approved - locked`
+          : `${tickSvg} Saved`;
+        saveBtn.replaceWith(badge);
+        return;
+      }
+
+      saveBtn.addEventListener('click', async () => {
         const rowErrEl = row.querySelector('.ev-doc-row-error');
         rowErrEl.classList.add('hidden');
         const title   = row.querySelector('.ev-doc-title').value.trim();
@@ -903,25 +942,20 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
           return;
         }
 
-        const saveBtn = row.querySelector('.ev-doc-save');
         saveBtn.disabled = true;
         try {
           const result = await api.post(`/api/projects/${projectId}/documents`, {
             title, folder_code: folder, stage_number: stageNum,
             file_ref: fileRef || null, status: 'submitted',
+            checklist_item_id: itemId || null,
           });
           row.dataset.saved = 'true';
           row.dataset.docId = result.id;
-          // Lock the row and show a compact "saved" state. Straight/geometric
-          // tick (matching the stepper's stage-complete icon) instead of the
-          // Unicode ✓ character, which renders with a cursive curl in most fonts.
           row.querySelectorAll('input, select').forEach(f => { f.disabled = true; });
           const savedBadge = document.createElement('span');
           savedBadge.className = 'badge badge-green';
           savedBadge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
-          savedBadge.innerHTML = `<svg width="10" height="9" viewBox="0 0 13 11" fill="none">
-            <polyline points="1.5,5.5 4.5,9 11.5,1.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
-          </svg> Saved`;
+          savedBadge.innerHTML = `${tickSvg} Saved`;
           saveBtn.replaceWith(savedBadge);
         } catch (err) {
           rowErrEl.textContent = err.message;
@@ -931,23 +965,27 @@ function showEvidenceModal({ itemCode, itemDesc, stageNum, existingNote = '' }) 
       });
     }
 
-    modal.querySelector('#ev-doc-add').addEventListener('click', addDocRow);
+    modal.querySelector('#ev-doc-add').addEventListener('click', () => addDocRow());
 
-    // Populate VDR folder options from the project's active template, then
-    // fill in any rows already rendered (there shouldn't be any yet, but
-    // this keeps the fetch and the first row independent of load order).
-    api.get(`/api/templates/active${techParam(project.technology)}`)
-      .then(tpl => {
-        folderOptions = '<option value="">Select folder…</option>' +
-          (tpl?.vdr_folders ?? [])
+    // Populate VDR folder options from the project's active template, and -
+    // if this modal is scoped to a checklist item - fetch any documents
+    // already attached to that item from a previous session, so re-opening
+    // "Edit evidence note" doesn't look empty just because the documents
+    // were saved earlier. Both fetches run together so existing rows are
+    // built with the real folder list already in hand.
+    Promise.all([
+      api.get(`/api/templates/active${techParam(project.technology)}`).catch(() => null),
+      itemId ? api.get(`/api/projects/${projectId}/documents?checklist_item_id=${itemId}`).catch(() => []) : Promise.resolve([]),
+    ]).then(([tpl, existingDocs]) => {
+      folderOptions = tpl
+        ? '<option value="">Select folder…</option>' +
+          (tpl.vdr_folders ?? [])
             .map(f => `<option value="${f.folder_code}">${f.folder_code}: ${api.fmt.escape(f.name)}</option>`)
-            .join('');
-        modal.querySelectorAll('.ev-doc-folder').forEach(sel => { sel.innerHTML = folderOptions; });
-      })
-      .catch(() => {
-        folderOptions = '<option value="">Could not load folders</option>';
-        modal.querySelectorAll('.ev-doc-folder').forEach(sel => { sel.innerHTML = folderOptions; });
-      });
+            .join('')
+        : '<option value="">Could not load folders</option>';
+      modal.querySelectorAll('.ev-doc-folder').forEach(sel => { sel.innerHTML = folderOptions; });
+      existingDocs.forEach(doc => addDocRow(doc));
+    });
 
     const close = (result) => { modal.remove(); resolve(result); };
     modal.querySelector('#ev-close').addEventListener('click', () => close({ cancelled: true }));

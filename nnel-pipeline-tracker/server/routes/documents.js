@@ -5,7 +5,7 @@
  * GET    /api/projects/:id/documents         — list document register
  * POST   /api/projects/:id/documents         — add an entry
  * PATCH  /api/projects/:id/documents/:docId  — update title/status/file_ref/notes
- * DELETE /api/projects/:id/documents/:docId  — delete (blocked only when submitted or approved)
+ * DELETE /api/projects/:id/documents/:docId  — delete (blocked once approved, or once the document's stage has been submitted for gate review)
  */
 
 const pool = require('../db');
@@ -66,10 +66,24 @@ async function list(req, res, params) {
     return sendError(res, 403, 'Forbidden');
   }
 
+  // Optional filter: only documents attached as evidence for one specific
+  // checklist item (used by the evidence-note modal to show documents
+  // uploaded in a previous session, not just the current one).
+  const url = new URL(req.url, 'http://localhost');
+  const checklistItemId = url.searchParams.get('checklist_item_id');
+
+  const where  = ['dr.project_id = ?'];
+  const values = [projectId];
+  if (checklistItemId) {
+    where.push('dr.checklist_item_id = ?');
+    values.push(parseInt(checklistItemId, 10));
+  }
+
   const [rows] = await pool.execute(
     `SELECT
        dr.id,
        dr.stage_number,
+       dr.checklist_item_id,
        dr.title,
        dr.status,
        dr.file_ref,
@@ -84,9 +98,9 @@ async function list(req, res, params) {
      FROM document_register dr
      JOIN template_vdr_folders vf ON vf.id = dr.vdr_folder_id
      JOIN users u ON u.id = dr.uploaded_by
-     WHERE dr.project_id = ?
+     WHERE ${where.join(' AND ')}
      ORDER BY vf.sort_order, dr.stage_number, dr.uploaded_at`,
-    [projectId]
+    values
   );
 
   sendJSON(res, 200, rows);
@@ -95,7 +109,7 @@ async function list(req, res, params) {
 // ---------------------------------------------------------------------------
 // POST /api/projects/:id/documents
 // Adds an entry to the document register.
-// Body: { title, folder_code, status?, stage_number?, file_ref?, notes? }
+// Body: { title, folder_code, status?, stage_number?, file_ref?, notes?, checklist_item_id? }
 // ---------------------------------------------------------------------------
 async function create(req, res, params) {
   const user = await requireLogin(req, res);
@@ -111,7 +125,7 @@ async function create(req, res, params) {
   let body;
   try { body = await readBody(req); } catch { return sendError(res, 400, 'Invalid JSON'); }
 
-  const { title, folder_code, status, stage_number, file_ref, notes } = body;
+  const { title, folder_code, status, stage_number, file_ref, notes, checklist_item_id } = body;
   if (!title || typeof title !== 'string' || title.trim().length === 0) {
     return sendError(res, 400, 'title is required');
   }
@@ -131,16 +145,34 @@ async function create(req, res, params) {
   );
   if (!folderRow) return sendError(res, 400, `folder_code '${folder_code}' not found in this project's template`);
 
+  // If this document is being attached as evidence for a specific checklist
+  // item, verify that item actually belongs to this project's own template
+  // (not some other project's) before linking it — the id is not user-typed,
+  // but it does travel through the browser so it's still checked server-side.
+  let checklistItemId = null;
+  if (checklist_item_id != null) {
+    checklistItemId = parseInt(checklist_item_id, 10);
+    const [[itemRow]] = await pool.execute(
+      `SELECT tci.id FROM template_checklist_items tci
+       JOIN template_versions tv ON tv.id = tci.template_version_id
+       JOIN projects p ON p.template_version = tv.version AND p.id = ?
+       WHERE tci.id = ?`,
+      [projectId, checklistItemId]
+    );
+    if (!itemRow) return sendError(res, 400, 'checklist_item_id does not belong to this project');
+  }
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     const [result] = await conn.execute(
       `INSERT INTO document_register
-         (project_id, stage_number, title, vdr_folder_id, status, file_ref, notes, uploaded_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (project_id, stage_number, checklist_item_id, title, vdr_folder_id, status, file_ref, notes, uploaded_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         projectId,
         stage_number != null ? parseInt(stage_number, 10) : null,
+        checklistItemId,
         title.trim(),
         folderRow.id,
         docStatus,
@@ -154,7 +186,7 @@ async function create(req, res, params) {
       action: 'document_created',
       projectId,
       stageNumber: stage_number != null ? parseInt(stage_number, 10) : null,
-      detail: { title: title.trim(), folder_code, status: docStatus },
+      detail: { title: title.trim(), folder_code, status: docStatus, checklist_item_id: checklistItemId },
     });
     await conn.commit();
     sendJSON(res, 201, { id: result.insertId, title: title.trim(), folder_code, status: docStatus });
@@ -313,9 +345,9 @@ async function update(req, res, params) {
 
 // ---------------------------------------------------------------------------
 // DELETE /api/projects/:id/documents/:docId
-// Hard-deletes the entry. Restricted to outstanding or draft status only —
-// once a document is submitted or approved it is part of the gate record
-// and cannot be erased.
+// Hard-deletes the entry, uploader only. Blocked once the document has been
+// approved, or once its stage has been submitted for gate review — at that
+// point it is part of the locked gate record and cannot be erased.
 // ---------------------------------------------------------------------------
 async function remove(req, res, params) {
   const user = await requireLogin(req, res);
@@ -326,7 +358,7 @@ async function remove(req, res, params) {
   if (!projectId || !docId) return sendError(res, 400, 'Invalid ids');
 
   const [[doc]] = await pool.execute(
-    'SELECT id, uploaded_by, status, title FROM document_register WHERE id = ? AND project_id = ?',
+    'SELECT id, uploaded_by, status, title, stage_number FROM document_register WHERE id = ? AND project_id = ?',
     [docId, projectId]
   );
   if (!doc) return sendError(res, 404, 'Document not found');
@@ -337,10 +369,29 @@ async function remove(req, res, params) {
     return sendError(res, 403, 'Only the user who uploaded this document can delete it');
   }
 
-  // Submitted and approved documents are part of the gate review record
-  // and cannot be deleted even by their uploader.
-  if (['submitted', 'approved'].includes(doc.status)) {
-    return sendError(res, 409, `Cannot delete a document that has been ${doc.status} - it is part of the gate record`);
+  // Once a document has been approved by a gate approver it is permanently
+  // part of the gate record and can never be deleted, regardless of the
+  // stage's current status (e.g. after a later re-open).
+  if (doc.status === 'approved') {
+    return sendError(res, 409, 'Cannot delete a document that has been approved - it is part of the gate record');
+  }
+
+  // A document's own 'submitted' status just means "the uploader considers
+  // this final and ready for the gate approver to see" — it is set the
+  // moment evidence is attached to a checklist item, which happens while
+  // the stage is still being worked on, well before the stage itself is
+  // submitted for gate review. So the real lock boundary is the STAGE's
+  // status (matches the submission-lock rule that freezes the rest of the
+  // stage's working data), not the document's own status.
+  if (doc.stage_number != null) {
+    const [[stageRow]] = await pool.execute(
+      'SELECT status FROM project_stages WHERE project_id = ? AND stage_number = ?',
+      [projectId, doc.stage_number]
+    );
+    if (stageRow && stageRow.status !== 'in_progress') {
+      return sendError(res, 409,
+        'Cannot delete a document once its stage has been submitted for gate review - it is part of the gate record');
+    }
   }
 
   const conn = await pool.getConnection();
