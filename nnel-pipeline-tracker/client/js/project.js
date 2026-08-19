@@ -46,6 +46,14 @@ let projectId   = null;
 let activeTab   = 'checklist';
 let viewStage   = null; // null = current working view; number = history snapshot for that stage
 
+// True while the user has typed/selected something in the gate decision
+// form or the Team tab's inline edit grid that hasn't been saved yet - a
+// live update arriving mid-edit must not silently re-render over it (see
+// handleLiveUpdate below). Cleared automatically at the top of every fresh
+// render of either tab, since a fresh render has nothing pending by
+// definition.
+let hasUnsavedEdits = false;
+
 document.addEventListener('DOMContentLoaded', async () => {
   currentUser = await api.getMe();
   if (!currentUser) return;
@@ -69,7 +77,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (requestedTab) activeTab = requestedTab;
 
   await loadProject();
+
+  document.getElementById('live-update-refresh-btn')?.addEventListener('click', async () => {
+    hasUnsavedEdits = false; // explicit user action - trust it over their own draft
+    hideLiveUpdateBanner();
+    await liveRefreshProject();
+  });
+
+  // Live updates (see client/js/live.js) - only defined on pages that load
+  // that script. Debounced: several writes in quick succession (e.g. a
+  // checklist tick plus its evidence document) shouldn't trigger a
+  // re-render per event.
+  let liveDebounce = null;
+  api.onLiveUpdate?.((evt) => {
+    if (Number(evt.project_id) !== Number(projectId)) return; // not this project - ignore
+    clearTimeout(liveDebounce);
+    liveDebounce = setTimeout(() => {
+      if (hasUnsavedEdits) { showLiveUpdateBanner(); return; }
+      liveRefreshProject();
+    }, 400);
+  });
 });
+
+// Re-fetches and re-renders everything, same as any local action already
+// does via loadProject() - the only difference is this one preserves
+// whichever stage the user is currently browsing (loadProject() itself
+// always resets to the live working view, which is right after a LOCAL
+// edit but would otherwise yank someone out of a history snapshot they're
+// reading just because something changed elsewhere on the project).
+async function liveRefreshProject() {
+  const savedViewStage = viewStage;
+  await loadProject();
+  viewStage = savedViewStage;
+  loadTab(activeTab);
+}
+
+function showLiveUpdateBanner() {
+  document.getElementById('live-update-banner')?.classList.remove('hidden');
+}
+function hideLiveUpdateBanner() {
+  document.getElementById('live-update-banner')?.classList.add('hidden');
+}
 
 async function loadProject() {
   try {
@@ -403,6 +451,8 @@ function renderTabs() {
     btn.addEventListener('click', () => {
       nav.querySelectorAll('.section-tab').forEach(b => b.classList.toggle('active', b === btn));
       activeTab = btn.dataset.tab;
+      hasUnsavedEdits = false; // leaving whatever was being edited
+      hideLiveUpdateBanner();
       loadTab(activeTab);
     });
   });
@@ -1023,6 +1073,7 @@ function showEvidenceModal({ itemId, itemCode, itemDesc, stageNum, existingNote 
 // GATE DECISION TAB
 // ===========================================================================
 async function renderGate(el) {
+  hasUnsavedEdits = false; // fresh render - nothing pending yet
   const stageNum = project.current_stage;
   const stage    = currentStage();
 
@@ -1388,8 +1439,12 @@ function wireDecisionForm(form, stageNum) {
       });
       condSec.classList.toggle('hidden', r.value !== 'conditional');
       submitBtn.disabled = false;
+      hasUnsavedEdits = true;
     });
   });
+
+  form.querySelector('#dec-rationale')?.addEventListener('input', () => { hasUnsavedEdits = true; });
+  form.querySelector('#dec-conditions')?.addEventListener('input', () => { hasUnsavedEdits = true; });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2407,6 +2462,7 @@ const ALL_WORKSTREAM_OPTIONS = [
 ];
 
 async function renderTeam(el) {
+  hasUnsavedEdits = false; // fresh render - nothing pending yet
   const adminView = canManageTeam();
   let allUsers = [];
   if (adminView) {
@@ -2445,6 +2501,7 @@ async function renderTeam(el) {
   function markDirty() {
     const btn = el.querySelector('#team-save-btn');
     if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+    hasUnsavedEdits = true;
   }
 
   // Role dropdowns - track change only, no API call

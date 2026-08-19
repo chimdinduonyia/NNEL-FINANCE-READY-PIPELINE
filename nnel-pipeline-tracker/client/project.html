@@ -61,12 +61,23 @@
     </div>
   </div>
 
+  <!-- Shown instead of a silent live-refresh when the user has unsaved
+       input in the current tab (gate decision form / Team tab edits), so a
+       change from someone else never quietly discards what they're typing. -->
+  <div class="container" style="padding-bottom:0;">
+    <div id="live-update-banner" class="hidden" style="display:flex;align-items:center;gap:10px;padding:10px 16px;margin-top:16px;background:var(--gray-50);border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+      <span style="flex:1;">This project was updated elsewhere. Finish or discard your changes, then refresh to see the latest.</span>
+      <button type="button" class="btn btn-ghost btn-sm" id="live-update-refresh-btn">Refresh now</button>
+    </div>
+  </div>
+
   <!-- Section content -->
   <main class="container section-content" id="section-content">
     <div class="loading">Loading project…</div>
   </main>
 
   <script src="/js/api.js"></script>
+  <script src="/js/live.js"></script>
   <script src="/js/project.js"></script>
 
     </div>

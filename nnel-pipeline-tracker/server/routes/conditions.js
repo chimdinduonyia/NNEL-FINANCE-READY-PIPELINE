@@ -21,6 +21,7 @@ const { sendJSON, sendError } = require('../utils/response');
 const { readBody } = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
 const stageService = require('../services/stageService');
+const events = require('../services/events');
 const { MAX_STAGE_NUMBER } = require('../constants');
 
 // ---------------------------------------------------------------------------
@@ -214,6 +215,10 @@ async function closeCondition(req, res, params) {
           ? 'stage_advanced' : 'chain_continues',
       }),
     });
+    events.broadcastProjectChange(projectId, {
+      action: allResolved ? 'gate_conditions_resolved' : 'condition_closed',
+      stageNumber,
+    });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -373,6 +378,7 @@ async function reopenStage(req, res, params) {
       new_review_round: newRound,
       previous_status: previousStatus,
     });
+    events.broadcastProjectChange(projectId, { action: 'stage_reopened', stageNumber });
   } catch (err) {
     await conn.rollback();
     throw err;

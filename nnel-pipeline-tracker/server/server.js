@@ -28,6 +28,7 @@ const userRoutes      = require('./routes/users');
 const notificationRoutes = require('./routes/notifications');
 const presenceRoutes  = require('./routes/presence');
 const vdrRoutes        = require('./routes/vdr');
+const eventsRoutes     = require('./routes/events');
 const { sendJSON, sendError } = require('./utils/response');
 
 const PORT       = Number(process.env.PORT) || 3000;
@@ -98,6 +99,16 @@ async function handleRequest(req, res) {
   // ---- Health check (no auth) --------------------------------------------
   if (method === 'GET' && path === '/api/health') {
     return sendJSON(res, 200, { status: 'ok', timestamp: new Date().toISOString() });
+  }
+
+  // ---- Live updates (SSE) --------------------------------------------------
+  // Authenticated via ?token=, not the usual header - see routes/events.js
+  // for why. Deliberately checked before the other routes below: this
+  // response stays open indefinitely rather than ending immediately, so it
+  // doesn't matter where in the list it sits, but keeping it near the top
+  // avoids it ever being shadowed by a broader pattern.
+  if (method === 'GET' && path === '/api/events') {
+    return eventsRoutes.stream(req, res, url.searchParams);
   }
 
   // ---- Auth ---------------------------------------------------------------

@@ -27,6 +27,7 @@ const { sendJSON, sendError } = require('../utils/response');
 const { readBody } = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
 const stageService = require('../services/stageService');
+const events = require('../services/events');
 const { MAX_STAGE_NUMBER } = require('../constants');
 
 // ---------------------------------------------------------------------------
@@ -102,6 +103,7 @@ async function submit(req, res, params) {
       capex_locked: project.capex_usd,
       required_approvers: required,
     });
+    events.broadcastProjectChange(projectId, { action: 'stage_submitted', stageNumber });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -176,6 +178,7 @@ async function recall(req, res, params) {
 
     await conn.commit();
     sendJSON(res, 200, { ok: true });
+    events.broadcastProjectChange(projectId, { action: 'submission_recalled', stageNumber });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -382,6 +385,7 @@ async function recordDecision(req, res, params) {
       new_stage_status: newStageStatus,
       ...(decision === 'conditional' && { conditions_recorded: conditions.length }),
     });
+    events.broadcastProjectChange(projectId, { action: 'gate_decision_recorded', stageNumber });
   } catch (err) {
     await conn.rollback();
     throw err;

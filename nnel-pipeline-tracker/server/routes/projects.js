@@ -25,6 +25,7 @@ const { sendJSON, sendError } = require('../utils/response');
 const { readBody } = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
 const stageService = require('../services/stageService');
+const events = require('../services/events');
 const { ACTIVE_WINDOW_MS } = require('./presence');
 
 const VALID_ROLES = ['project_lead', 'contributor', 'gate_approver', 'reviewer', 'observer'];
@@ -160,6 +161,7 @@ async function create(req, res) {
 
     await conn.commit();
     sendJSON(res, 201, { id: projectId, name: name.trim(), template_version: tv.version });
+    events.broadcastProjectChange(projectId, { action: 'project_created' });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -420,6 +422,7 @@ async function update(req, res, params) {
     });
     await conn.commit();
     sendJSON(res, 200, { updated: true });
+    events.broadcastProjectChange(projectId, { action: 'project_updated' });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -518,6 +521,7 @@ async function addMember(req, res, params) {
     });
     await conn.commit();
     sendJSON(res, 200, { assigned: true });
+    events.broadcastProjectChange(projectId, { action: 'member_assigned' });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -579,6 +583,7 @@ async function removeMember(req, res, params) {
     });
     await conn.commit();
     sendJSON(res, 200, { removed: true });
+    events.broadcastProjectChange(projectId, { action: 'member_removed' });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -624,6 +629,7 @@ async function deleteProject(req, res, params) {
     });
     await conn.commit();
     sendJSON(res, 200, { deleted: true });
+    events.broadcastProjectChange(projectId, { action: 'project_deleted' });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -694,6 +700,7 @@ async function updateMember(req, res, params) {
     });
     await conn.commit();
     sendJSON(res, 200, { updated: true });
+    events.broadcastProjectChange(projectId, { action: 'member_updated' });
   } catch (err) {
     await conn.rollback();
     throw err;

@@ -18,6 +18,7 @@ const {
 const { sendJSON, sendError } = require('../utils/response');
 const { readBody } = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
+const events = require('../services/events');
 const { MAX_STAGE_NUMBER } = require('../constants');
 
 // ---------------------------------------------------------------------------
@@ -298,6 +299,9 @@ async function updateChecklistItem(req, res, params) {
 
     await conn.commit();
     sendJSON(res, 200, { updated: true });
+    // Live-refresh anyone else with this project open - fire-and-forget,
+    // after the commit so a rollback could never trigger a false update.
+    events.broadcastProjectChange(projectId, { action: 'checklist_item_updated', stageNumber });
   } catch (err) {
     await conn.rollback();
     throw err;

@@ -14,6 +14,7 @@ const { canViewProject, hasProjectRole, getProjectMember, getRequiredAuthority }
 const { sendJSON, sendError } = require('../utils/response');
 const { readBody } = require('../utils/bodyParser');
 const auditLog = require('../services/auditLog');
+const events = require('../services/events');
 
 const VALID_STATUSES = ['outstanding', 'draft', 'submitted', 'approved', 'superseded'];
 
@@ -190,6 +191,10 @@ async function create(req, res, params) {
     });
     await conn.commit();
     sendJSON(res, 201, { id: result.insertId, title: title.trim(), folder_code, status: docStatus });
+    events.broadcastProjectChange(projectId, {
+      action: 'document_created',
+      stageNumber: stage_number != null ? parseInt(stage_number, 10) : null,
+    });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -338,6 +343,10 @@ async function update(req, res, params) {
     }
     await conn.commit();
     sendJSON(res, 200, { updated: true });
+    events.broadcastProjectChange(projectId, {
+      action: statusChanging ? 'document_status_updated' : 'document_updated',
+      stageNumber: doc.stage_number,
+    });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -412,6 +421,7 @@ async function remove(req, res, params) {
     });
     await conn.commit();
     sendJSON(res, 200, { deleted: true });
+    events.broadcastProjectChange(projectId, { action: 'document_deleted', stageNumber: doc.stage_number });
   } catch (err) {
     await conn.rollback();
     throw err;

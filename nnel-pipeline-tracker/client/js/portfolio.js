@@ -32,6 +32,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     searchQuery = e.target.value.trim().toLowerCase();
     renderProjects();
   });
+
+  // Live updates (see client/js/live.js) - any change to any project this
+  // user can see refreshes the whole dashboard. Debounced so a burst of
+  // several writes (e.g. someone bulk-approving documents) only triggers
+  // one re-fetch, not one per event. No unsaved-edit guard needed here -
+  // nothing on this page holds draft input that a refresh could destroy
+  // (the search box itself isn't touched by refresh()/renderProjects()).
+  let liveDebounce = null;
+  api.onLiveUpdate?.(() => {
+    clearTimeout(liveDebounce);
+    liveDebounce = setTimeout(refresh, 400);
+  });
 });
 
 // ---------------------------------------------------------------------------
