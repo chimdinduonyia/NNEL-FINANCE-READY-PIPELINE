@@ -4,18 +4,22 @@
 // Kept in sync by eye with server/routes/notifications.js's PROJECT_ACTIONS /
 // ACCOUNT_ACTIONS lists - this is just the display label for each.
 const ACTION_LABELS = {
-  gate_decision_recorded:   'Gate decision recorded',
-  stage_submitted:          'Stage submitted for gate review',
-  stage_reopened:           'Stage re-opened',
-  submission_recalled:      'Submission recalled',
-  member_assigned:          'Team member added',
-  member_removed:           'Team member removed',
-  condition_closed:         'Condition closed',
-  gate_conditions_resolved: 'All conditions resolved',
-  document_status_updated:  'Document status updated',
-  user_updated:             'Your account was updated',
-  user_status_changed:      'Your account status changed',
-  user_password_reset:      'Your password was reset by an admin',
+  gate_decision_recorded:    'Gate decision recorded',
+  stage_submitted:           'Stage submitted for gate review',
+  stage_reopened:            'Stage re-opened',
+  submission_recalled:       'Submission recalled',
+  // Only ever shown to the person it happened to (see the server-side
+  // targeting in notifications.js), so this can be worded in the first
+  // person rather than the generic "Team member added".
+  member_assigned:           'You have been added to a project team',
+  member_removed:            'You have been removed from a project team',
+  condition_closed:          'Condition closed',
+  gate_conditions_resolved:  'All conditions resolved',
+  stage_checklist_completed: 'Stage checklist complete',
+  document_status_updated:   'Document status updated',
+  user_updated:              'Your account was updated',
+  user_status_changed:       'Your account status changed',
+  user_password_reset:       'Your password was reset by an admin',
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -43,6 +47,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const context = n.project_id
         ? `<a href="/project.html?id=${n.project_id}">${api.fmt.escape(n.project_name)}</a>${n.stage_number != null ? ` · Stage ${n.stage_number}` : ''}`
         : 'Your account';
+      const actorName = api.fmt.escape(n.actor_name) + (n.actor_role === 'admin' ? ' (Admin)' : '');
 
       // A gate awaiting this user's own approval right now - the server
       // only ever surfaces these two notification shapes to the approver
@@ -58,7 +63,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="notif-dot"></div>
         <div class="notif-body">
           <div class="notif-label">${api.fmt.escape(label)}</div>
-          <div class="notif-meta">${context} · ${api.fmt.escape(n.actor_name)}</div>
+          <div class="notif-meta">${context} · ${actorName}</div>
         </div>
         ${actionBtn}
         <div class="notif-time">${api.fmt.dateTime(n.created_at)}</div>

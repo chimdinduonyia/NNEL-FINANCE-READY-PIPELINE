@@ -208,9 +208,29 @@ async function updateChecklistItem(req, res, params) {
 
   const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
 
+  // Mandatory-checklist completeness for this project/stage, read both
+  // before and after the write below so a "stage_checklist_completed"
+  // notification only fires on the actual transition into complete - not
+  // on every subsequent edit while it's already complete (e.g. ticking an
+  // optional item, or editing an evidence note on an already-ticked one).
+  const completenessQuery = `
+    SELECT COUNT(*) AS total, COALESCE(SUM(sc.is_complete), 0) AS done
+    FROM template_checklist_items tci
+    JOIN template_versions tv ON tv.id = tci.template_version_id
+    JOIN projects p ON p.template_version = tv.version AND p.id = ?
+    LEFT JOIN stage_checklist sc
+      ON sc.project_id = ? AND sc.stage_number = ? AND sc.checklist_item_id = tci.id
+    WHERE tci.stage_number = ? AND tci.is_mandatory = 1 AND tci.is_active = 1
+  `;
+  const completenessParams = [projectId, projectId, stageNumber, stageNumber];
+  const isComplete = (stats) => stats.total > 0 && Number(stats.done) === Number(stats.total);
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+
+    const [[beforeStats]] = await conn.execute(completenessQuery, completenessParams);
+    const wasComplete = isComplete(beforeStats);
 
     // Upsert: create the row if it somehow doesn't exist yet
     await conn.execute(
@@ -261,6 +281,20 @@ async function updateChecklistItem(req, res, params) {
             evidence_note: body.evidence_note || null,
           },
     });
+
+    // Fire a distinct, low-frequency event only on the moment every
+    // mandatory item becomes ticked - this is what the project lead's
+    // "stage checklist complete" notification is derived from.
+    const [[afterStats]] = await conn.execute(completenessQuery, completenessParams);
+    if (!wasComplete && isComplete(afterStats)) {
+      await auditLog.log(conn, {
+        userId: user.id,
+        action: 'stage_checklist_completed',
+        projectId,
+        stageNumber,
+        detail: { mandatory_total: afterStats.total },
+      });
+    }
 
     await conn.commit();
     sendJSON(res, 200, { updated: true });

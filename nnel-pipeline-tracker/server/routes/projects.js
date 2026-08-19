@@ -473,6 +473,26 @@ async function addMember(req, res, params) {
   );
   if (!targetUser) return sendError(res, 404, 'User not found or inactive');
 
+  // GOVERNANCE: every project must have a Project Lead before any other
+  // role can be assigned - this is what makes segregation of duties and
+  // the submission/gate-approval flow meaningful in the first place. This
+  // insert is an upsert (existing members can have their role changed by
+  // re-adding them with a different role), so the check excludes the
+  // target user's own current row: it correctly blocks both "first member
+  // added isn't a lead" and "demoting the project's only lead to something
+  // else", without blocking a lead being re-added as themselves.
+  if (role !== 'project_lead') {
+    const [[{ otherLeads }]] = await pool.execute(
+      `SELECT COUNT(*) AS otherLeads FROM project_members
+       WHERE project_id = ? AND role = 'project_lead' AND user_id != ?`,
+      [projectId, user_id]
+    );
+    if (otherLeads === 0) {
+      return sendError(res, 409,
+        'This project has no Project Lead yet. Add a Project Lead before assigning any other role.');
+    }
+  }
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -525,6 +545,24 @@ async function removeMember(req, res, params) {
     return sendError(res, 403, 'Forbidden');
   }
   if (!projectId || !targetUserId) return sendError(res, 400, 'Invalid ids');
+
+  // GOVERNANCE: mirrors the same rule enforced on add - a project can never
+  // be left without a Project Lead, so removing the only one is blocked.
+  const [[targetMember]] = await pool.execute(
+    'SELECT role FROM project_members WHERE project_id = ? AND user_id = ?',
+    [projectId, targetUserId]
+  );
+  if (targetMember?.role === 'project_lead') {
+    const [[{ otherLeads }]] = await pool.execute(
+      `SELECT COUNT(*) AS otherLeads FROM project_members
+       WHERE project_id = ? AND role = 'project_lead' AND user_id != ?`,
+      [projectId, targetUserId]
+    );
+    if (otherLeads === 0) {
+      return sendError(res, 409,
+        "Cannot remove the project's only Project Lead. Assign a new Project Lead first.");
+    }
+  }
 
   const conn = await pool.getConnection();
   try {

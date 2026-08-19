@@ -64,15 +64,22 @@ const CANDIDATE_LIMIT = 300;
 // the whole point of the notification is that they are NOT a member
 // anymore, so a membership-based filter would silently swallow the one
 // event they most need to see.
+// stage_checklist_completed deliberately sits OUTSIDE the "al.user_id != ?"
+// actor exclusion that applies to everything else: when the project lead is
+// also the one ticking checklist items (common on smaller teams), they can
+// be the actor on the very tick that completes the stage. That's still a
+// genuine milestone worth confirming to them - it's not "notifying you of
+// your own action" so much as "your stage is now ready to submit" - so
+// self-triggered completions must not be silently dropped.
 const CANDIDATE_QUERY = `
   SELECT al.id, al.project_id, al.stage_number, al.action, al.detail, al.created_at,
-         al.user_id AS actor_id, u.full_name AS actor_name,
+         al.user_id AS actor_id, u.full_name AS actor_name, u.system_role AS actor_role,
          p.name AS project_name
   FROM audit_log al
   JOIN users u ON u.id = al.user_id
   LEFT JOIN projects p ON p.id = al.project_id
-  WHERE al.user_id != ?
-    AND (
+  WHERE
+    (al.user_id != ? AND (
       (al.project_id IN (SELECT project_id FROM project_members WHERE user_id = ?)
        AND al.action IN (${ROLE_CHECKED_ACTIONS.map(() => '?').join(',')}))
       OR (al.action = 'member_assigned' AND CAST(al.detail ->> '$.target_user_id' AS UNSIGNED) = ?)
@@ -81,7 +88,9 @@ const CANDIDATE_QUERY = `
       OR
       (al.action IN (${ACCOUNT_ACTIONS.map(() => '?').join(',')})
        AND CAST(al.detail ->> '$.target_user_id' AS UNSIGNED) = ?)
-    )
+    ))
+    OR (al.action = 'stage_checklist_completed'
+        AND al.project_id IN (SELECT project_id FROM project_members WHERE user_id = ?))
   ORDER BY al.created_at DESC
   LIMIT ${CANDIDATE_LIMIT}
 `;
@@ -91,6 +100,7 @@ function candidateParams(userId) {
     userId, userId, ...ROLE_CHECKED_ACTIONS,
     userId, userId, userId,
     ...ACCOUNT_ACTIONS, userId,
+    userId,
   ];
 }
 
@@ -185,6 +195,13 @@ async function getEligibleNotifications(userId) {
       // Their stage got reopened - concerns the project lead who now needs
       // to revise and resubmit.
       case 'stage_reopened':
+        include = me?.role === 'project_lead';
+        break;
+
+      // Every mandatory checklist item for the stage is now ticked -
+      // concerns the project lead, who can now submit the stage for gate
+      // review.
+      case 'stage_checklist_completed':
         include = me?.role === 'project_lead';
         break;
 

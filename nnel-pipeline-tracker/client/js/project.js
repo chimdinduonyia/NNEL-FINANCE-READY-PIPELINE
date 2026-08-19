@@ -2414,7 +2414,7 @@ async function renderTeam(el) {
   }
   const activeUsers = allUsers.filter(u => u.is_active);
 
-  el.innerHTML = buildTeamHtml(adminView);
+  el.innerHTML = buildTeamHtml(adminView, activeUsers);
 
   // Non-admin members see a read-only table - no event wiring needed
   if (!adminView) return;
@@ -2546,10 +2546,30 @@ async function renderTeam(el) {
   // "Add Team Members" button
   el.querySelector('#open-add-members-btn')?.addEventListener('click', () =>
     openAddMembersModal(activeUsers));
+
+  // "This project has no Project Lead yet" banner
+  const assignLeadSelect = el.querySelector('#assign-lead-select');
+  const assignLeadBtn    = el.querySelector('#assign-lead-btn');
+  assignLeadSelect?.addEventListener('change', () => {
+    assignLeadBtn.disabled = !assignLeadSelect.value;
+  });
+  assignLeadBtn?.addEventListener('click', async () => {
+    const userId = parseInt(assignLeadSelect.value, 10);
+    if (!userId) return;
+    assignLeadBtn.disabled = true;
+    try {
+      await api.post(`/api/projects/${projectId}/members`, { user_id: userId, role: 'project_lead' });
+      await loadProject();
+    } catch (err) {
+      alert('Could not assign Project Lead: ' + err.message);
+      assignLeadBtn.disabled = false;
+    }
+  });
 }
 
-function buildTeamHtml(adminView = false) {
+function buildTeamHtml(adminView = false, activeUsers = []) {
   const members = project.members ?? [];
+  const hasLead = members.some(m => m.role === 'project_lead');
 
   // ---- Read-only view (non-admin project members) ----
   if (!adminView) {
@@ -2644,6 +2664,26 @@ function buildTeamHtml(adminView = false) {
         </tr>`;
       }).join('');
 
+  // GOVERNANCE: a project must have a Project Lead before any other role
+  // can be assigned (enforced server-side in projects.js addMember/
+  // removeMember) - while that's not yet true, lead directly to fixing it
+  // instead of offering the normal add-members flow, which would just fail.
+  const noLeadBanner = !hasLead ? (() => {
+    const existing = new Set(members.map(m => m.user_id));
+    const candidates = activeUsers.filter(u => !existing.has(u.id));
+    const options = candidates.map(u =>
+      `<option value="${u.id}">${api.fmt.escape(u.full_name)}</option>`).join('');
+    return `<div class="error-msg" style="margin:12px 16px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      ${api.icons.warning}
+      <span style="flex:1;min-width:200px;">This project has no Project Lead yet. Assign one before adding any other team members.</span>
+      <select id="assign-lead-select" style="min-width:200px;">
+        <option value="">Select a user…</option>
+        ${options}
+      </select>
+      <button class="btn btn-primary btn-sm" id="assign-lead-btn" disabled>Set as Project Lead</button>
+    </div>`;
+  })() : '';
+
   return `
     <div class="card">
       <div class="card-header">
@@ -2651,9 +2691,10 @@ function buildTeamHtml(adminView = false) {
         <div class="flex gap-8" style="align-items:center;">
           <button class="btn btn-primary btn-sm" id="team-save-btn"
             disabled style="opacity:0.4;transition:opacity .2s;">Save Changes</button>
-          <button class="btn btn-primary btn-sm" id="open-add-members-btn">+ Add Team Members</button>
+          ${hasLead ? `<button class="btn btn-primary btn-sm" id="open-add-members-btn">+ Add Team Members</button>` : ''}
         </div>
       </div>
+      ${noLeadBanner}
       <div id="team-save-error" class="error-msg hidden" style="margin:8px 16px 0;"></div>
       <div style="overflow-x:auto;">
         <table class="doc-table" style="width:100%;min-width:700px;">
