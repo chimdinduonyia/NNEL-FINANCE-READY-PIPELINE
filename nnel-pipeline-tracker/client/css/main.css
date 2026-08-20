@@ -795,6 +795,25 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .project-actions-dropdown.open { display: block; }
 
+/* Generic per-row overflow menu (users table, etc.) - same pattern as the
+   project actions menu above, just under a name that isn't project-specific. */
+.row-actions-menu { position: relative; display: inline-block; }
+.row-actions-btn { padding: 6px 8px; }
+.row-actions-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  z-index: 60;
+}
+.row-actions-dropdown.open { display: block; }
+
 /* Project brief — quick fact strip shown above the stepper */
 .project-brief {
   background: var(--bg-subtle);

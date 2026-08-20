@@ -78,12 +78,12 @@ function renderTable() {
         : '<span class="badge badge-green">Active</span>';
     const isSelf      = u.id === currentUser.id;
 
-    const statusBtn = isSelf ? '' : (u.is_active
-      ? `<button class="btn btn-ghost btn-sm" data-action="delete" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}" style="color:var(--red-700);">Delete</button>`
-      : `<button class="btn btn-primary btn-sm" data-action="activate" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">Activate</button>`);
+    const statusItem = isSelf ? '' : (u.is_active
+      ? `<button class="dd-item dd-danger" data-action="delete" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">${api.icons.trash}Delete</button>`
+      : `<button class="dd-item" data-action="activate" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">${api.icons.checkCircle}Activate</button>`);
 
-    const resendBtn = (u.is_pending && u.is_active)
-      ? `<button class="btn btn-ghost btn-sm" data-action="resend-invite" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">Resend Invite</button>`
+    const resendItem = (u.is_pending && u.is_active)
+      ? `<button class="dd-item" data-action="resend-invite" data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">${api.icons.send}Resend Invite</button>`
       : '';
 
     const wsBadge   = u.workstream ? `<span class="badge badge-outline" style="text-transform:capitalize;font-size:10px;">${u.workstream}</span>` : '';
@@ -97,15 +97,18 @@ function renderTable() {
       <td>${statusBadge}</td>
       <td class="text-sm text-muted">${api.fmt.date(u.created_at)}</td>
       <td>
-        <div class="flex gap-8">
-          <button class="btn btn-ghost btn-sm" data-action="edit"
-            data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}"
-            data-email="${api.fmt.escape(u.email)}" data-role="${u.system_role}"
-            data-workstream="${u.workstream||''}" data-authority="${u.authority||'ss'}">Edit</button>
-          <button class="btn btn-ghost btn-sm" data-action="reset-pw"
-            data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">Reset password</button>
-          ${resendBtn}
-          ${statusBtn}
+        <div class="row-actions-menu">
+          <button type="button" class="btn btn-ghost btn-sm row-actions-btn" data-uid="${u.id}" title="Actions">${api.icons.settings}</button>
+          <div class="row-actions-dropdown" data-uid="${u.id}">
+            <button class="dd-item" data-action="edit"
+              data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}"
+              data-email="${api.fmt.escape(u.email)}" data-role="${u.system_role}"
+              data-workstream="${u.workstream||''}" data-authority="${u.authority||'ss'}">${api.icons.pencil}Edit</button>
+            <button class="dd-item" data-action="reset-pw"
+              data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}">${api.icons.lock}Reset Password</button>
+            ${resendItem}
+            ${statusItem ? `<hr class="dd-divider">${statusItem}` : ''}
+          </div>
         </div>
       </td>
     </tr>`;
@@ -121,15 +124,38 @@ function renderTable() {
     <tbody>${rows}</tbody>
   </table>`;
 
-  // Wire up action buttons
+  // Wire up the per-row settings dropdown - open/close, and dispatch
+  // whichever action button was clicked inside it.
+  card.querySelectorAll('.row-actions-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dropdown = btn.nextElementSibling;
+      const wasOpen = dropdown.classList.contains('open');
+      closeAllRowMenus();
+      if (!wasOpen) dropdown.classList.add('open');
+    });
+  });
   card.querySelectorAll('button[data-action]').forEach(btn => {
     btn.addEventListener('click', () => handleAction(btn));
   });
 }
 
+// Closes every open row-actions dropdown - called before opening a
+// different one, and after any action is taken (except Resend Invite,
+// which shows its own "Sending…"/"Sent!" feedback in place and needs to
+// stay visible for that).
+function closeAllRowMenus() {
+  document.querySelectorAll('.row-actions-dropdown.open').forEach(d => d.classList.remove('open'));
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.row-actions-menu')) closeAllRowMenus();
+});
+
 function handleAction(btn) {
   const { action, id, name, email, role } = btn.dataset;
   const uid = parseInt(id, 10);
+
+  if (action !== 'resend-invite') closeAllRowMenus();
 
   switch (action) {
     case 'edit':

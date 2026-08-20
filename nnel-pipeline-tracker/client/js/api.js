@@ -285,6 +285,8 @@ const api = {
     clipboard:   `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2.5" y="2" width="9" height="11" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="5" y="1" width="4" height="2" rx="0.5" stroke="currentColor" stroke-width="1.2"/><line x1="4.5" y1="6" x2="9.5" y2="6" stroke="currentColor" stroke-width="1.2"/><line x1="4.5" y1="8.5" x2="9.5" y2="8.5" stroke="currentColor" stroke-width="1.2"/></svg>`,
     chainLink:   `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="4.5" width="6" height="5" rx="2.5" stroke="currentColor" stroke-width="1.3"/><rect x="6.5" y="4.5" width="6" height="5" rx="2.5" stroke="currentColor" stroke-width="1.3"/></svg>`,
     clock:       `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.4"/><polyline points="7,3.5 7,7 9.5,8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>`,
+    settings:    `<svg width="15" height="15" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.3"/><path d="M7 1.5v1.4M7 11.1v1.4M12.5 7h-1.4M2.9 7H1.5M10.7 3.3l-1 1M4.3 9.7l-1 1M10.7 10.7l-1-1M4.3 4.3l-1-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+    send:        `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M12.5 1.5 6 8M12.5 1.5 8.5 12.5 6 8 1.5 5.5 12.5 1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
   },
 
   // Helpers
