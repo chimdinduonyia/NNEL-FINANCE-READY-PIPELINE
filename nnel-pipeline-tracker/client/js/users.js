@@ -98,7 +98,7 @@ function renderTable() {
       <td class="text-sm text-muted">${api.fmt.date(u.created_at)}</td>
       <td>
         <div class="row-actions-menu">
-          <button type="button" class="btn btn-ghost btn-sm row-actions-btn" data-uid="${u.id}" title="Actions">${api.icons.settings}</button>
+          <button type="button" class="btn btn-ghost btn-sm row-actions-btn" data-uid="${u.id}" title="Actions">⋮</button>
           <div class="row-actions-dropdown" data-uid="${u.id}">
             <button class="dd-item" data-action="edit"
               data-id="${u.id}" data-name="${api.fmt.escape(u.full_name)}"
